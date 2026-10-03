@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vela_quant": {
+      "command": "python",
+      "args": ["-m", "backend.server"],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
