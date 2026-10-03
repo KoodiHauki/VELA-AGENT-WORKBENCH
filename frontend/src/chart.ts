@@ -2,21 +2,15 @@
  * Vela WebGL2 Chart Manager & PineTS Engine Driver
  */
 
-import { Vela } from '@luxalgo/vela';
+import { Vela, MultiProviderFeed } from '@luxalgo/vela';
 import { PineWorkerEngine, PineEngine } from '@luxalgo/vela-pinets';
 import { HyperliquidProvider } from '@luxalgo/vela/providers/hyperliquid';
-
-export interface ChartStatus {
-  symbol: string;
-  timeframe: string;
-  indicatorsCount: number;
-}
 
 export class VelaChartManager {
   private container: HTMLElement;
   public chart: Vela | null = null;
   private currentSymbol: string = 'BTC';
-  private currentTimeframe: string = '60'; // in minutes or timeframe string
+  private currentTimeframe: string = '60';
   private activeIndicators: string[] = [];
 
   constructor(container: HTMLElement | string) {
@@ -29,12 +23,18 @@ export class VelaChartManager {
     }
   }
 
-  /**
-   * Convert interval string (1m, 5m, 15m, 1h, 4h, 1d) to minutes/format expected by Vela
-   */
+  private cleanSymbol(s: string): string {
+    let clean = s.toUpperCase().trim();
+    if (clean.startsWith('HYPERLIQUID:')) return clean;
+    if (clean.endsWith('USDT') && clean.length > 4) clean = clean.slice(0, -4);
+    if (clean.endsWith('USD') && clean.length > 3) clean = clean.slice(0, -3);
+    return `HYPERLIQUID:${clean}`;
+  }
+
   private formatTimeframe(tf: string): string {
     const map: Record<string, string> = {
       '1m': '1',
+      '3m': '3',
       '5m': '5',
       '15m': '15',
       '30m': '30',
@@ -53,20 +53,27 @@ export class VelaChartManager {
     this.currentTimeframe = this.formatTimeframe(timeframe);
 
     try {
-      this.chart = new Vela(this.container, {
-        symbol: this.currentSymbol,
-        timeframe: this.currentTimeframe,
-        live: true,
-      });
+      // 1. Create MultiProviderFeed with HyperliquidProvider registered in deps
+      const feed = new MultiProviderFeed();
+      const hlProvider = new HyperliquidProvider();
+      feed.registerProvider('hyperliquid', hlProvider);
 
-      try {
-        const provider = new HyperliquidProvider();
-        this.chart.data.registerProvider('hyperliquid', provider);
-      } catch (provErr) {
-        console.warn('[Vela] HyperliquidProvider registration warning:', provErr);
-      }
+      // 2. Initialize Vela instance with feed in deps
+      this.chart = new Vela(
+        this.container,
+        {
+          symbol: this.cleanSymbol(this.currentSymbol),
+          timeframe: this.currentTimeframe,
+          live: true,
+          theme: 'dark',
+          defaultLanguage: 'pine',
+        },
+        {
+          dataFeed: feed,
+        }
+      );
 
-      // Register PineTS execution engine (worker preferred, fallback to sync engine)
+      // 3. Register PineTS execution engine (worker preferred, fallback to sync engine)
       try {
         this.chart.registerEngine('pine', new PineWorkerEngine());
         console.log('[Vela] Registered PineWorkerEngine successfully.');
@@ -75,7 +82,7 @@ export class VelaChartManager {
         this.chart.registerEngine('pine', new PineEngine());
       }
 
-      // Add resize observer for responsive chart resizing
+      // 4. Resize observer for responsive layout
       const ro = new ResizeObserver(() => {
         if (this.chart) {
           this.chart.resize();
@@ -96,7 +103,7 @@ export class VelaChartManager {
     if (this.chart) {
       try {
         await this.chart.setMarket({
-          symbol: this.currentSymbol,
+          symbol: this.cleanSymbol(this.currentSymbol),
           timeframe: this.currentTimeframe,
         });
       } catch (err) {
@@ -116,9 +123,14 @@ export class VelaChartManager {
     try {
       console.log(`[Vela] Injektoidaan indikaattori: "${name}"...`);
       
-      // Use runIndicator for safe evaluation and injection
+      // Prefer runIndicator for safe evaluation and structured error return
       if (typeof this.chart.runIndicator === 'function') {
-        const handle = await this.chart.runIndicator(code);
+        const result: any = await this.chart.runIndicator(code);
+        if (result && result.ok === false) {
+          const errDetail = result.error?.message || String(result.error || 'Tuntematon virhe');
+          console.warn('[Vela] runIndicator reported ok=false:', errDetail);
+          return { success: false, error: errDetail };
+        }
         this.activeIndicators.push(name);
         return { success: true };
       } else if (typeof this.chart.addIndicator === 'function') {
@@ -129,7 +141,7 @@ export class VelaChartManager {
         throw new Error('Vela chart does not support indicator injection methods.');
       }
     } catch (err: any) {
-      console.error('[Vela] Indicator injection failed:', err);
+      console.error('[Vela] Indicator injection failed with exception:', err);
       return {
         success: false,
         error: err.message || String(err),

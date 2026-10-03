@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 from typing import Any, Dict, List, Optional, Set
@@ -109,9 +110,16 @@ class BridgeServer:
                             timeframe = normalize_interval(data.get("timeframe", "1h"))
                             model = data.get("model", "gemini-3.8-flash-high")
                             effort = data.get("effort", "high")
-                            asyncio.create_task(
-                                self.process_generation_request(ws, prompt, symbol, timeframe, model, effort)
-                            )
+                            mode = data.get("mode", "auto")
+                            
+                            if mode == "instant":
+                                asyncio.create_task(
+                                    self.run_fallback_agent(ws, prompt, symbol, timeframe)
+                                )
+                            else:
+                                asyncio.create_task(
+                                    self.process_generation_request(ws, prompt, symbol, timeframe, model, effort)
+                                )
                         elif msg_type == "ping":
                             await self.send_to(ws, {"type": "pong"})
                     except Exception as e:
@@ -132,13 +140,13 @@ class BridgeServer:
         symbol: str,
         timeframe: str,
     ):
-        """Autonomous Python quant flow if external CLI execution is unavailable."""
-        await self.send_to(ws, {"type": "log", "message": f"[Agent] Haetaan markkinakonteksti parille {symbol} ({timeframe})..."})
+        """Autonomous instant quant engine flow (< 500ms)."""
+        await self.send_to(ws, {"type": "log", "message": f"[Pika-analyysi] Noudetaan tilastollinen konteksti parille {symbol} ({timeframe})..."})
 
         # 1. Context
         df = get_candles(symbol=symbol, timeframe=timeframe, bars=100)
         ctx = calculate_market_context(df)
-        await self.send_to(ws, {"type": "log", "message": f"[Context] {ctx.get('summary', '')}"})
+        await self.send_to(ws, {"type": "log", "message": f"[Konteksti] {ctx.get('summary', '')}"})
 
         # 2. Indicator synthesis based on prompt keywords
         prompt_lower = user_prompt.lower()
@@ -187,29 +195,29 @@ class BridgeServer:
                 "plotshape(bear_cross, 'Sell Signal', location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)\n"
             )
 
-        await self.send_to(ws, {"type": "log", "message": f"[Agent] Luotu Pine Script v5 -koodi: '{ind_name}'"})
+        await self.send_to(ws, {"type": "log", "message": f"[Generointi] Luotu Pine Script v5: '{ind_name}'"})
 
         # 3. Validate
-        await self.send_to(ws, {"type": "log", "message": "[Agent] Validoidaan syntaksi headless PineTS -moottorilla..."})
+        await self.send_to(ws, {"type": "log", "message": "[Validointi] Tarkistetaan syntaksi headless PineTS -moottorilla..."})
         val = validate_pinets_syntax(pine_code)
         if not val.get("valid"):
-            await self.send_to(ws, {"type": "log", "message": f"[Korjaus] Syntaksivirhe rivillä {val.get('line')}: {val.get('error')}"})
+            await self.send_to(ws, {"type": "log", "message": f"[Syntaksivirhe] Rivi {val.get('line')}: {val.get('error')}"})
             return
 
-        await self.send_to(ws, {"type": "log", "message": "[Validointi] Pine Script syntaksi OK!"})
+        await self.send_to(ws, {"type": "log", "message": "[Validointi] Pine Script v5 -syntaksi hyväksytty!"})
 
         # 4. Backtest
-        await self.send_to(ws, {"type": "log", "message": "[Agent] Lasketaan tilastollinen backtest historiadataan..."})
+        await self.send_to(ws, {"type": "log", "message": "[Laskenta] Suoritetaan tilastollinen backtest 500 kynttilälle..."})
         df_bt = get_candles(symbol=symbol, timeframe=timeframe, bars=500)
         metrics = run_quantitative_backtest_logic(df_bt, strategy_rule)
         metrics["symbol"] = symbol
         metrics["timeframe"] = timeframe
 
         await self.send_to(ws, {"type": "metrics", "data": metrics})
-        await self.send_to(ws, {"type": "log", "message": f"[Backtest] {metrics.get('summary', '')}"})
+        await self.send_to(ws, {"type": "log", "message": f"[Backtest Metriikat] {metrics.get('summary', '')}"})
 
         # 5. Push to chart
-        await self.send_to(ws, {"type": "log", "message": f"[Kaavio] Siirretään indikaattori '{ind_name}' Vela-kaaviolle..."})
+        await self.send_to(ws, {"type": "log", "message": f"[Kaavio] Renderöidään indikaattori '{ind_name}' Vela-kaaviolle..."})
         await self.broadcast({
             "type": "render_indicator",
             "name": ind_name,
@@ -218,10 +226,11 @@ class BridgeServer:
 
         # 6. Summary
         summary = (
-            f"Markkina-arvio ({symbol} / {timeframe}): "
+            f"Objektiivinen tilannekatsaus ({symbol} / {timeframe}): "
             f"Hinta {ctx['current_price']:.2f}, trendi {ctx['trend_direction']} ({ctx['trend_strength']}), "
-            f"ATR volatiliteetti {ctx['atr_pct']}%. Indikaattorin '{ind_name}' historiallinen voittoprosentti on "
-            f"{metrics['win_rate']}% ({metrics['trades_count']} kauppaa) ja profit factor {metrics['profit_factor']}."
+            f"ATR volatiliteetti {ctx['atr_pct']}%. Indikaattorin '{ind_name}' historiallinen voittosuhde on "
+            f"{metrics['win_rate']}% ({metrics['trades_count']} kauppaa), profit factor {metrics['profit_factor']} "
+            f"ja max drawdown {metrics['max_drawdown_pct']}%."
         )
         await self.send_to(ws, {"type": "summary", "text": summary})
         await self.send_to(ws, {"type": "done"})
@@ -235,7 +244,7 @@ class BridgeServer:
         model: str,
         effort: str,
     ):
-        """Run Antigravity CLI or fallback flow to generate and validate indicators."""
+        """Run Antigravity CLI to generate and validate indicators with full event streaming."""
         await self.send_to(ws, {
             "type": "log",
             "message": f"[Komentopalkki] Vastaanotettu pyyntö: \"{user_prompt}\" (Pari: {symbol}, Aikaväli: {timeframe})",
@@ -246,7 +255,7 @@ class BridgeServer:
             logger.info("No Antigravity CLI executable found in PATH, using direct quant agent fallback.")
             await self.send_to(ws, {
                 "type": "log",
-                "message": "[Järjestelmä] Käytetään suoraa orkestroijaa...",
+                "message": "[Järjestelmä] Antigravity CLI ei saatavilla, käytetään suoraa pika-analyysiä...",
             })
             await self.run_fallback_agent(ws, user_prompt, symbol, timeframe)
             return
@@ -254,14 +263,20 @@ class BridgeServer:
         logger.info("Executing Antigravity CLI via %s", cli_bin)
         await self.send_to(ws, {
             "type": "log",
-            "message": f"[CLI] Käynnistetään Antigravity (malli: {model}, effort: {effort})...",
+            "message": f"[Antigravity] Käynnistetään AI-orkestroija (malli: {model}, effort: {effort})...",
         })
 
         full_prompt = (
             f"{self.system_prompt}\n\n"
             f"KÄYTTÄJÄN PYYNTÖ:\n{user_prompt}\n"
             f"Aktiivinen symboli: {symbol}, Aikajänne: {timeframe}\n"
-            f"Noudata ohjeita: 1. get_market_context 2. Kirjoita Pine Script v5 3. validate_pinets_syntax 4. run_quantitative_backtest 5. push_indicator_to_chart 6. Sanallinen yhteenveto."
+            f"Noudata ohjeita:\n"
+            f"1. Kutsu get_market_context\n"
+            f"2. Kirjoita Pine Script v5 -indikaattori\n"
+            f"3. Kutsu validate_pinets_syntax\n"
+            f"4. Kutsu run_quantitative_backtest\n"
+            f"5. Kutsu push_indicator_to_chart\n"
+            f"6. Tulosta analyyttinen yhteenveto ja koodi."
         )
 
         cmd = [
@@ -273,6 +288,9 @@ class BridgeServer:
             "-p", full_prompt,
         ]
 
+        rendered_indicator = False
+        full_response_text = ""
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -282,6 +300,7 @@ class BridgeServer:
 
             # Stream stdout line by line
             async def read_stream(stream, is_stderr=False):
+                nonlocal rendered_indicator, full_response_text
                 while True:
                     line_bytes = await stream.readline()
                     if not line_bytes:
@@ -296,17 +315,45 @@ class BridgeServer:
                             event = data.get("event")
                             if event == "step_update":
                                 step = data.get("step_update", {})
-                                delta = step.get("text_delta")
-                                if delta:
-                                    await self.send_to(ws, {"type": "log", "message": delta.strip()})
+                                step_type = step.get("step_type")
+                                state = step.get("state")
+                                
+                                if step_type == "tool":
+                                    tool_name = step.get("tool_name", "tuntematon")
+                                    if state == "ACTIVE":
+                                        await self.send_to(ws, {"type": "log", "message": f"[AI Työkalu] Kutsutaan: {tool_name}..."})
+                                    elif state == "DONE":
+                                        tool_info = step.get("tool_info", {})
+                                        await self.send_to(ws, {"type": "log", "message": f"[AI Työkalu] {tool_name} suoritettu."})
+                                        
+                                        # Check if push_indicator_to_chart tool call payload is present
+                                        if "push_indicator_to_chart" in str(tool_info):
+                                            params = tool_info.get("parameters", {})
+                                            code = params.get("script_code") or params.get("code")
+                                            name = params.get("indicator_name") or params.get("name") or "Custom Indicator"
+                                            if code:
+                                                rendered_indicator = True
+                                                await self.broadcast({"type": "render_indicator", "name": name, "code": code})
+                                
+                                elif step_type == "agent_response":
+                                    delta = step.get("text_delta")
+                                    if delta and delta.strip():
+                                        full_response_text += delta
+                                        # Only log meaningful non-markdown-fences fragments
+                                        if not delta.startswith("```") and len(delta.strip()) > 3:
+                                            await self.send_to(ws, {"type": "log", "message": delta.strip()})
+                            
                             elif event == "result":
                                 res = data.get("result", {})
                                 resp_text = res.get("response", "")
                                 if resp_text:
+                                    full_response_text = resp_text
                                     await self.send_to(ws, {"type": "summary", "text": resp_text})
+                            
                             else:
-                                await self.send_to(ws, {"type": "log", "message": f"[CLI] {line}"})
+                                pass
                         except Exception:
+                            # Not JSON, raw text log
                             await self.send_to(ws, {"type": "log", "message": line})
                     else:
                         logger.warning("CLI stderr: %s", line)
@@ -318,11 +365,30 @@ class BridgeServer:
             )
 
             await process.wait()
+
+            # Fallback extraction: If push_indicator_to_chart wasn't triggered, extract Pine code from text
+            if not rendered_indicator and full_response_text:
+                pine_match = re.search(r"```(?:pinescript|pine)?\s*(//@version=5[\s\S]*?)```", full_response_text, re.IGNORECASE)
+                if not pine_match:
+                    pine_match = re.search(r"(//@version=5[\s\S]*?)(?=\n\n#|\n\n---|```|$)", full_response_text)
+                
+                if pine_match:
+                    extracted_code = pine_match.group(1).strip()
+                    name_match = re.search(r'(?:indicator|strategy)\s*\(\s*["\']([^"\']+)["\']', extracted_code)
+                    ind_name = name_match.group(1) if name_match else "Antigravity Indicator"
+                    logger.info("Extracted Pine Script code from response: %s", ind_name)
+                    await self.send_to(ws, {"type": "log", "message": f"[Kaavio] Poimittu ja toimitetaan koodi: '{ind_name}'..."})
+                    await self.broadcast({
+                        "type": "render_indicator",
+                        "name": ind_name,
+                        "code": extracted_code,
+                    })
+
             await self.send_to(ws, {"type": "done"})
 
         except Exception as e:
             logger.error("CLI subprocess error: %s, falling back to direct agent", e)
-            await self.send_to(ws, {"type": "log", "message": f"[CLI Virhe] {e}. Siirrytään varajärjestelmään..."})
+            await self.send_to(ws, {"type": "log", "message": f"[CLI Virhe] {e}. Siirrytään pika-analyysiin..."})
             await self.run_fallback_agent(ws, user_prompt, symbol, timeframe)
 
     async def handle_push_indicator(self, request: web.Request) -> web.Response:
@@ -392,7 +458,7 @@ def create_app() -> web.Application:
     server = BridgeServer()
     app = web.Application()
 
-    # CORS middleware or headers
+    # CORS middleware
     async def cors_middleware(app, handler):
         async def middleware(request):
             if request.method == "OPTIONS":

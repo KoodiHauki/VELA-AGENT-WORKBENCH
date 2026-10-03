@@ -121,7 +121,8 @@ export class BridgeClient {
     symbol: string = 'BTC',
     timeframe: string = '1h',
     model: string = 'gemini-3.8-flash-high',
-    effort: string = 'high'
+    effort: string = 'high',
+    mode: string = 'auto'
   ): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       if (this.onLog) {
@@ -138,6 +139,7 @@ export class BridgeClient {
       timeframe: timeframe,
       model: model,
       effort: effort,
+      mode: mode,
     };
 
     this.ws.send(JSON.stringify(payload));

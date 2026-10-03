@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const symbolSelect = document.getElementById('symbol-select') as HTMLSelectElement;
   const timeframeSelect = document.getElementById('timeframe-select') as HTMLSelectElement;
   const modelSelect = document.getElementById('model-select') as HTMLSelectElement;
-  const effortSelect = document.getElementById('effort-select') as HTMLSelectElement;
+  const modeSelect = document.getElementById('mode-select') as HTMLSelectElement;
   const bridgeDot = document.getElementById('bridge-status-dot') as HTMLElement;
   const hlDot = document.getElementById('hl-status-dot') as HTMLElement;
   const terminal = document.getElementById('agent-terminal') as HTMLElement;
@@ -128,12 +128,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const symbol = symbolSelect.value;
     const timeframe = timeframeSelect.value;
     const model = modelSelect.value;
-    const effort = effortSelect.value;
+    const mode = modeSelect ? modeSelect.value : 'auto';
 
     sendBtn.disabled = true;
     sendBtn.textContent = 'Ajetaan...';
 
-    const sent = bridgeClient.sendPrompt(prompt, symbol, timeframe, model, effort);
+    const sent = bridgeClient.sendPrompt(prompt, symbol, timeframe, model, 'high', mode);
     if (!sent) {
       sendBtn.disabled = false;
       sendBtn.textContent = 'Aja';
