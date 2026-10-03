@@ -122,7 +122,8 @@ export class BridgeClient {
     timeframe: string = '1h',
     model: string = 'gemini-3.8-flash-high',
     effort: string = 'high',
-    mode: string = 'auto'
+    mode: string = 'auto',
+    source: string = 'hyperliquid'
   ): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       if (this.onLog) {
@@ -140,6 +141,7 @@ export class BridgeClient {
       model: model,
       effort: effort,
       mode: mode,
+      source: source,
     };
 
     this.ws.send(JSON.stringify(payload));

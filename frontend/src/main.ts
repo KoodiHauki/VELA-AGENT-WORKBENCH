@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const chartContainer = document.getElementById('chart-container') as HTMLElement;
   const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
   const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
+  const sourceSelect = document.getElementById('source-select') as HTMLSelectElement;
   const symbolSelect = document.getElementById('symbol-select') as HTMLSelectElement;
   const timeframeSelect = document.getElementById('timeframe-select') as HTMLSelectElement;
   const modelSelect = document.getElementById('model-select') as HTMLSelectElement;
@@ -61,16 +62,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 1. Initialize Vela Chart
+  const initialSource = sourceSelect?.value || 'hyperliquid';
   const initialSymbol = symbolSelect.value || 'BTC';
   const initialTimeframe = timeframeSelect.value || '1h';
   const chartManager = new VelaChartManager(chartContainer);
 
   try {
-    chartManager.init(initialSymbol, initialTimeframe);
+    chartManager.init(initialSymbol, initialTimeframe, initialSource);
     if (hlDot) {
       hlDot.classList.add('online');
     }
-    appendLog(`[Järjestelmä] Vela WebGL2 -kaavio alustettu parille ${initialSymbol} (${initialTimeframe}).`);
+    appendLog(`[Järjestelmä] Vela WebGL2 -kaavio alustettu: ${initialSource.toUpperCase()} ${initialSymbol} (${initialTimeframe}).`);
   } catch (err) {
     appendLog(`[Virhe] Vela-kaavion alustus epäonnistui: ${err}`);
   }
@@ -125,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const prompt = promptInput.value.trim();
     if (!prompt) return;
 
+    const source = sourceSelect ? sourceSelect.value : 'hyperliquid';
     const symbol = symbolSelect.value;
     const timeframe = timeframeSelect.value;
     const model = modelSelect.value;
@@ -133,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendBtn.disabled = true;
     sendBtn.textContent = 'Ajetaan...';
 
-    const sent = bridgeClient.sendPrompt(prompt, symbol, timeframe, model, 'high', mode);
+    const sent = bridgeClient.sendPrompt(prompt, symbol, timeframe, model, 'high', mode, source);
     if (!sent) {
       sendBtn.disabled = false;
       sendBtn.textContent = 'Aja';
@@ -158,19 +161,31 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Symbol and Timeframe selector changes
+  // Source, Symbol and Timeframe selector changes
+  if (sourceSelect) {
+    sourceSelect.addEventListener('change', () => {
+      const src = sourceSelect.value;
+      const sym = symbolSelect.value;
+      const tf = timeframeSelect.value;
+      appendLog(`[Datalähde] Vaihdetaan pörssi: ${src.toUpperCase()} (${sym} ${tf})`);
+      chartManager.setMarket(sym, tf, src);
+    });
+  }
+
   symbolSelect.addEventListener('change', () => {
     const sym = symbolSelect.value;
     const tf = timeframeSelect.value;
-    appendLog(`[Markkina] Vaihdetaan markkinapari: ${sym} (${tf})`);
-    chartManager.setMarket(sym, tf);
+    const src = sourceSelect ? sourceSelect.value : 'hyperliquid';
+    appendLog(`[Markkina] Vaihdetaan markkinapari: ${src.toUpperCase()}:${sym} (${tf})`);
+    chartManager.setMarket(sym, tf, src);
   });
 
   timeframeSelect.addEventListener('change', () => {
     const sym = symbolSelect.value;
     const tf = timeframeSelect.value;
-    appendLog(`[Aikajänne] Vaihdetaan aikajänne: ${tf} (${sym})`);
-    chartManager.setMarket(sym, tf);
+    const src = sourceSelect ? sourceSelect.value : 'hyperliquid';
+    appendLog(`[Aikajänne] Vaihdetaan aikajänne: ${tf} (${src.toUpperCase()}:${sym})`);
+    chartManager.setMarket(sym, tf, src);
   });
 
   // Clear terminal

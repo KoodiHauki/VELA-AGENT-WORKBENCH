@@ -25,23 +25,25 @@ VALIDATOR_SCRIPT = os.path.join(os.path.dirname(__file__), "validator.js")
 
 
 @mcp.tool()
-def get_market_context(symbol: str = "BTC", timeframe: str = "1h", candles: int = 100) -> Dict[str, Any]:
+def get_market_context(symbol: str = "BTC", timeframe: str = "1h", candles: int = 100, source: str = "hyperliquid") -> Dict[str, Any]:
     """Get summarized statistical context for market: OHLCV, ATR volatility, trend direction, moving averages, and volume distribution.
     
     Args:
         symbol: Market coin symbol (e.g. 'BTC', 'ETH', 'SOL').
         timeframe: Bar timeframe interval (e.g. '1m', '5m', '15m', '1h', '4h', '1d').
         candles: Number of historical bars to analyze (default 100).
+        source: Market data exchange source: 'hyperliquid' or 'binance' (default 'hyperliquid').
     """
     try:
-        df = get_candles(symbol=symbol, timeframe=timeframe, bars=candles)
+        df = get_candles(symbol=symbol, timeframe=timeframe, bars=candles, source=source)
         context = calculate_market_context(df)
         context["symbol"] = symbol
         context["timeframe"] = timeframe
+        context["source"] = source
         return context
     except Exception as e:
         logger.error("Error in get_market_context: %s", e)
-        return {"error": str(e), "symbol": symbol, "timeframe": timeframe}
+        return {"error": str(e), "symbol": symbol, "timeframe": timeframe, "source": source}
 
 
 @mcp.tool()
@@ -125,7 +127,7 @@ def validate_pinets_syntax(script_code: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: Dict[str, Any]) -> Dict[str, Any]:
+def run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: Dict[str, Any], source: str = "hyperliquid") -> Dict[str, Any]:
     """Calculate quantitative strategy performance on historical market data.
     
     Returns trades count, win rate %, average return %, max drawdown %, and profit factor.
@@ -134,12 +136,14 @@ def run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: Dict[
         symbol: Coin symbol (e.g. 'BTC').
         timeframe: Bar timeframe (e.g. '1h').
         strategy_rules: Dict defining strategy parameters (e.g. {'type': 'ma_crossover', 'fast_period': 20, 'slow_period': 50}).
+        source: Exchange data source ('hyperliquid' or 'binance', default 'hyperliquid').
     """
     try:
-        df = get_candles(symbol=symbol, timeframe=timeframe, bars=500)
+        df = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
         results = run_quantitative_backtest_logic(df, strategy_rules)
         results["symbol"] = symbol
         results["timeframe"] = timeframe
+        results["source"] = source
 
         # Forward metrics to bridge if available
         try:

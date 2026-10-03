@@ -111,14 +111,15 @@ class BridgeServer:
                             model = data.get("model", "gemini-3.8-flash-high")
                             effort = data.get("effort", "high")
                             mode = data.get("mode", "auto")
+                            source = data.get("source", "hyperliquid").lower()
                             
                             if mode == "instant":
                                 asyncio.create_task(
-                                    self.run_fallback_agent(ws, prompt, symbol, timeframe)
+                                    self.run_fallback_agent(ws, prompt, symbol, timeframe, source)
                                 )
                             else:
                                 asyncio.create_task(
-                                    self.process_generation_request(ws, prompt, symbol, timeframe, model, effort)
+                                    self.process_generation_request(ws, prompt, symbol, timeframe, model, effort, source)
                                 )
                         elif msg_type == "ping":
                             await self.send_to(ws, {"type": "pong"})
@@ -139,12 +140,13 @@ class BridgeServer:
         user_prompt: str,
         symbol: str,
         timeframe: str,
+        source: str = "hyperliquid",
     ):
         """Autonomous instant quant engine flow (< 500ms)."""
-        await self.send_to(ws, {"type": "log", "message": f"[Pika-analyysi] Noudetaan tilastollinen konteksti parille {symbol} ({timeframe})..."})
+        await self.send_to(ws, {"type": "log", "message": f"[Pika-analyysi] Noudetaan tilastollinen konteksti: {symbol} ({timeframe}, {source.upper()})..."})
 
         # 1. Context
-        df = get_candles(symbol=symbol, timeframe=timeframe, bars=100)
+        df = get_candles(symbol=symbol, timeframe=timeframe, bars=100, source=source)
         ctx = calculate_market_context(df)
         await self.send_to(ws, {"type": "log", "message": f"[Konteksti] {ctx.get('summary', '')}"})
 
@@ -207,11 +209,12 @@ class BridgeServer:
         await self.send_to(ws, {"type": "log", "message": "[Validointi] Pine Script v5 -syntaksi hyväksytty!"})
 
         # 4. Backtest
-        await self.send_to(ws, {"type": "log", "message": "[Laskenta] Suoritetaan tilastollinen backtest 500 kynttilälle..."})
-        df_bt = get_candles(symbol=symbol, timeframe=timeframe, bars=500)
+        await self.send_to(ws, {"type": "log", "message": f"[Laskenta] Suoritetaan tilastollinen backtest 500 kynttilälle ({source.upper()})..."})
+        df_bt = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
         metrics = run_quantitative_backtest_logic(df_bt, strategy_rule)
         metrics["symbol"] = symbol
         metrics["timeframe"] = timeframe
+        metrics["source"] = source
 
         await self.send_to(ws, {"type": "metrics", "data": metrics})
         await self.send_to(ws, {"type": "log", "message": f"[Backtest Metriikat] {metrics.get('summary', '')}"})
@@ -226,7 +229,7 @@ class BridgeServer:
 
         # 6. Summary
         summary = (
-            f"Objektiivinen tilannekatsaus ({symbol} / {timeframe}): "
+            f"Objektiivinen tilannekatsaus ({symbol} / {timeframe} / {source.upper()}): "
             f"Hinta {ctx['current_price']:.2f}, trendi {ctx['trend_direction']} ({ctx['trend_strength']}), "
             f"ATR volatiliteetti {ctx['atr_pct']}%. Indikaattorin '{ind_name}' historiallinen voittosuhde on "
             f"{metrics['win_rate']}% ({metrics['trades_count']} kauppaa), profit factor {metrics['profit_factor']} "
@@ -243,11 +246,12 @@ class BridgeServer:
         timeframe: str,
         model: str,
         effort: str,
+        source: str = "hyperliquid",
     ):
         """Run Antigravity CLI to generate and validate indicators with full event streaming."""
         await self.send_to(ws, {
             "type": "log",
-            "message": f"[Komentopalkki] Vastaanotettu pyyntö: \"{user_prompt}\" (Pari: {symbol}, Aikaväli: {timeframe})",
+            "message": f"[Komentopalkki] Vastaanotettu pyyntö: \"{user_prompt}\" (Pari: {symbol}, Aikaväli: {timeframe}, Lähde: {source.upper()})",
         })
 
         cli_bin = self.find_antigravity_executable()
@@ -257,7 +261,7 @@ class BridgeServer:
                 "type": "log",
                 "message": "[Järjestelmä] Antigravity CLI ei saatavilla, käytetään suoraa pika-analyysiä...",
             })
-            await self.run_fallback_agent(ws, user_prompt, symbol, timeframe)
+            await self.run_fallback_agent(ws, user_prompt, symbol, timeframe, source)
             return
 
         logger.info("Executing Antigravity CLI via %s", cli_bin)
@@ -269,12 +273,12 @@ class BridgeServer:
         full_prompt = (
             f"{self.system_prompt}\n\n"
             f"KÄYTTÄJÄN PYYNTÖ:\n{user_prompt}\n"
-            f"Aktiivinen symboli: {symbol}, Aikajänne: {timeframe}\n"
+            f"Aktiivinen symboli: {symbol}, Aikajänne: {timeframe}, Markkinalähde: {source}\n"
             f"Noudata ohjeita:\n"
-            f"1. Kutsu get_market_context\n"
+            f"1. Kutsu get_market_context(symbol='{symbol}', timeframe='{timeframe}', source='{source}')\n"
             f"2. Kirjoita Pine Script v5 -indikaattori\n"
-            f"3. Kutsu validate_pinets_syntax\n"
-            f"4. Kutsu run_quantitative_backtest\n"
+            f"3. Kutsu validate_pinets_syntax(script_code=...)\n"
+            f"4. Kutsu run_quantitative_backtest(symbol='{symbol}', timeframe='{timeframe}', strategy_rules=..., source='{source}')\n"
             f"5. Kutsu push_indicator_to_chart\n"
             f"6. Tulosta analyyttinen yhteenveto ja koodi."
         )
@@ -428,9 +432,10 @@ class BridgeServer:
         symbol = request.query.get("symbol", "BTC")
         timeframe = request.query.get("timeframe", "1h")
         bars = int(request.query.get("bars", 1000))
+        source = request.query.get("source", "hyperliquid")
 
         try:
-            df = get_candles(symbol=symbol, timeframe=timeframe, bars=bars)
+            df = get_candles(symbol=symbol, timeframe=timeframe, bars=bars, source=source)
             records = []
             for _, row in df.iterrows():
                 records.append({

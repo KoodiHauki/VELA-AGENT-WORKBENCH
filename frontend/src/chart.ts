@@ -5,12 +5,14 @@
 import { Vela, MultiProviderFeed } from '@luxalgo/vela';
 import { PineWorkerEngine, PineEngine } from '@luxalgo/vela-pinets';
 import { HyperliquidProvider } from '@luxalgo/vela/providers/hyperliquid';
+import { BinanceProvider } from '@luxalgo/vela/providers/binance';
 
 export class VelaChartManager {
   private container: HTMLElement;
   public chart: Vela | null = null;
   private currentSymbol: string = 'BTC';
   private currentTimeframe: string = '60';
+  private currentSource: string = 'hyperliquid';
   private activeIndicators: string[] = [];
 
   constructor(container: HTMLElement | string) {
@@ -23,11 +25,17 @@ export class VelaChartManager {
     }
   }
 
-  private cleanSymbol(s: string): string {
+  private cleanSymbol(s: string, source: string = 'hyperliquid'): string {
     let clean = s.toUpperCase().trim();
-    if (clean.startsWith('HYPERLIQUID:')) return clean;
+    if (clean.includes(':')) {
+      clean = clean.split(':', 2)[1];
+    }
     if (clean.endsWith('USDT') && clean.length > 4) clean = clean.slice(0, -4);
     if (clean.endsWith('USD') && clean.length > 3) clean = clean.slice(0, -3);
+
+    if (source.toLowerCase() === 'binance') {
+      return `BINANCE:${clean}USDT`;
+    }
     return `HYPERLIQUID:${clean}`;
   }
 
@@ -48,21 +56,22 @@ export class VelaChartManager {
     return map[tf] || tf;
   }
 
-  public init(symbol: string = 'BTC', timeframe: string = '1h') {
+  public init(symbol: string = 'BTC', timeframe: string = '1h', source: string = 'hyperliquid') {
     this.currentSymbol = symbol;
     this.currentTimeframe = this.formatTimeframe(timeframe);
+    this.currentSource = source.toLowerCase();
 
     try {
-      // 1. Create MultiProviderFeed with HyperliquidProvider registered in deps
+      // 1. Create MultiProviderFeed with both Hyperliquid and Binance providers
       const feed = new MultiProviderFeed();
-      const hlProvider = new HyperliquidProvider();
-      feed.registerProvider('hyperliquid', hlProvider);
+      feed.registerProvider('hyperliquid', new HyperliquidProvider());
+      feed.registerProvider('binance', new BinanceProvider());
 
       // 2. Initialize Vela instance with feed in deps
       this.chart = new Vela(
         this.container,
         {
-          symbol: this.cleanSymbol(this.currentSymbol),
+          symbol: this.cleanSymbol(this.currentSymbol, this.currentSource),
           timeframe: this.currentTimeframe,
           live: true,
           theme: 'dark',
@@ -96,14 +105,17 @@ export class VelaChartManager {
     }
   }
 
-  public async setMarket(symbol: string, timeframe: string) {
+  public async setMarket(symbol: string, timeframe: string, source?: string) {
     this.currentSymbol = symbol;
     this.currentTimeframe = this.formatTimeframe(timeframe);
+    if (source) {
+      this.currentSource = source.toLowerCase();
+    }
 
     if (this.chart) {
       try {
         await this.chart.setMarket({
-          symbol: this.cleanSymbol(this.currentSymbol),
+          symbol: this.cleanSymbol(this.currentSymbol, this.currentSource),
           timeframe: this.currentTimeframe,
         });
       } catch (err) {
