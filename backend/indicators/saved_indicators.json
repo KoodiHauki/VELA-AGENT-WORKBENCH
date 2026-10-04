@@ -1,0 +1,29 @@
+[
+  {
+    "id": "ind_preset_ema_crossover",
+    "name": "EMA 20/50 Crossover Trend",
+    "description": "Klassinen kahden eksponentiaalisen liukuvan keskiarvon risteysstrategia ja visuaaliset nuolisignaalit.",
+    "category": "Trendi",
+    "author": "Antigravity Quant",
+    "createdAt": 1728000000000,
+    "code": "//@version=5\nindicator('EMA 20/50 Dynamic Trend', overlay=true)\nfast_len = input.int(20, 'Fast EMA')\nslow_len = input.int(50, 'Slow EMA')\nfast_ema = ta.ema(close, fast_len)\nslow_ema = ta.ema(close, slow_len)\nbull_cross = ta.crossover(fast_ema, slow_ema)\nbear_cross = ta.crossunder(fast_ema, slow_ema)\nplot(fast_ema, 'Fast EMA', color=color.new(#00e676, 0), linewidth=2)\nplot(slow_ema, 'Slow EMA', color=color.new(#ff1744, 0), linewidth=2)\nplotshape(bull_cross, 'Buy Signal', location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)\nplotshape(bear_cross, 'Sell Signal', location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)"
+  },
+  {
+    "id": "ind_preset_rsi_extreme",
+    "name": "RSI Momentum Extreme (30/70)",
+    "description": "14 periodin RSI momentum-oskillaattori yliostetuilla ja ylimyydyillä äärialueilla.",
+    "category": "Oskillaattorit",
+    "author": "Antigravity Quant",
+    "createdAt": 1728000100000,
+    "code": "//@version=5\nindicator('RSI Momentum Extreme', overlay=false)\nrsi_len = input.int(14, 'RSI Length')\nrsi_val = ta.rsi(close, rsi_len)\nplot(rsi_val, 'RSI', color=color.purple, linewidth=2)\nhline(70, 'Overbought', color=color.red, linestyle=hline.style_dashed)\nhline(30, 'Oversold', color=color.green, linestyle=hline.style_dashed)\nhline(50, 'Midline', color=color.gray, linestyle=hline.style_dotted)"
+  },
+  {
+    "id": "ind_preset_donchian_breakout",
+    "name": "Donchian Breakout Channel 20",
+    "description": "20 kynttilän kanavamurtotunnistin dynaamisella keskilinjalla.",
+    "category": "Hintatoiminta",
+    "author": "Antigravity Quant",
+    "createdAt": 1728000200000,
+    "code": "//@version=5\nindicator('Breakout Channel 20', overlay=true)\nlen = input.int(20, 'Channel Length')\nupper = ta.highest(high, len)\nlower = ta.lowest(low, len)\nbasis = (upper + lower) / 2\nplot(upper, 'Upper Band', color=color.teal, linewidth=2)\nplot(lower, 'Lower Band', color=color.maroon, linewidth=2)\nplot(basis, 'Midline', color=color.gray, style=plot.style_line)"
+  }
+]

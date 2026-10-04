@@ -1,5 +1,7 @@
 /**
  * Vela WebGL2 Chart Manager & PineTS Engine Driver
+ * Supports MultiProviderFeed (Hyperliquid & Binance), multiple active indicators,
+ * weekly/monthly intervals, and chart state snapshots.
  */
 
 import { Vela, MultiProviderFeed } from '@luxalgo/vela';
@@ -7,13 +9,30 @@ import { PineWorkerEngine, PineEngine } from '@luxalgo/vela-pinets';
 import { HyperliquidProvider } from '@luxalgo/vela/providers/hyperliquid';
 import { BinanceProvider } from '@luxalgo/vela/providers/binance';
 
+export interface ActiveIndicatorItem {
+  id: string;
+  name: string;
+  code: string;
+  handle: any;
+  visible: boolean;
+  addedAt: number;
+}
+
+export interface ChartContextSnapshot {
+  symbol: string;
+  timeframe: string;
+  source: string;
+  activeIndicators: { id: string; name: string; visible: boolean; code: string }[];
+}
+
 export class VelaChartManager {
   private container: HTMLElement;
   public chart: Vela | null = null;
   private currentSymbol: string = 'BTC';
   private currentTimeframe: string = '60';
   private currentSource: string = 'hyperliquid';
-  private activeIndicators: string[] = [];
+  private activeIndicatorsMap: Map<string, ActiveIndicatorItem> = new Map();
+  public onActiveIndicatorsChange: ((indicators: ActiveIndicatorItem[]) => void) | null = null;
 
   constructor(container: HTMLElement | string) {
     if (typeof container === 'string') {
@@ -49,9 +68,15 @@ export class VelaChartManager {
       '1h': '60',
       '4h': '240',
       '1d': 'D',
+      '1w': 'W',
+      '1M': 'M',
       '60': '60',
       '240': '240',
       'D': 'D',
+      'W': 'W',
+      'M': 'M',
+      'w': 'W',
+      'm': 'M',
     };
     return map[tf] || tf;
   }
@@ -124,17 +149,26 @@ export class VelaChartManager {
     }
   }
 
+  private notifyIndicatorsChanged() {
+    if (this.onActiveIndicatorsChange) {
+      this.onActiveIndicatorsChange(this.getActiveIndicatorsList());
+    }
+  }
+
   /**
-   * Inject and run a validated Pine Script indicator on the live chart
+   * Inject and run a validated Pine Script indicator on the live chart.
+   * Supports multiple concurrent indicators without removing existing ones.
    */
-  public async injectIndicator(code: string, name: string = 'Custom Indicator'): Promise<{ success: boolean; error?: string }> {
+  public async injectIndicator(code: string, name: string = 'Custom Indicator'): Promise<{ success: boolean; id?: string; error?: string }> {
     if (!this.chart) {
       return { success: false, error: 'Vela-kaavio ei ole vielä alustettu.' };
     }
 
     try {
       console.log(`[Vela] Injektoidaan indikaattori: "${name}"...`);
-      
+      const id = 'ind_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      let handle: any = null;
+
       // Prefer runIndicator for safe evaluation and structured error return
       if (typeof this.chart.runIndicator === 'function') {
         const result: any = await this.chart.runIndicator(code);
@@ -143,15 +177,25 @@ export class VelaChartManager {
           console.warn('[Vela] runIndicator reported ok=false:', errDetail);
           return { success: false, error: errDetail };
         }
-        this.activeIndicators.push(name);
-        return { success: true };
+        handle = result?.handle || result;
       } else if (typeof this.chart.addIndicator === 'function') {
-        await this.chart.addIndicator(code);
-        this.activeIndicators.push(name);
-        return { success: true };
+        handle = await this.chart.addIndicator(code);
       } else {
         throw new Error('Vela chart does not support indicator injection methods.');
       }
+
+      const item: ActiveIndicatorItem = {
+        id,
+        name,
+        code,
+        handle,
+        visible: true,
+        addedAt: Date.now(),
+      };
+
+      this.activeIndicatorsMap.set(id, item);
+      this.notifyIndicatorsChanged();
+      return { success: true, id };
     } catch (err: any) {
       console.error('[Vela] Indicator injection failed with exception:', err);
       return {
@@ -161,8 +205,85 @@ export class VelaChartManager {
     }
   }
 
+  /**
+   * Toggle visibility of an active indicator (hide/show)
+   */
+  public toggleIndicatorVisibility(id: string): boolean {
+    const item = this.activeIndicatorsMap.get(id);
+    if (!item) return false;
+
+    item.visible = !item.visible;
+    if (item.handle && typeof item.handle.setVisible === 'function') {
+      try {
+        item.handle.setVisible(item.visible);
+      } catch (e) {
+        console.warn(`[Vela] Failed to toggle visibility for ${id}:`, e);
+      }
+    }
+    this.notifyIndicatorsChanged();
+    return item.visible;
+  }
+
+  /**
+   * Remove a specific indicator from the chart
+   */
+  public removeIndicator(id: string): boolean {
+    const item = this.activeIndicatorsMap.get(id);
+    if (!item) return false;
+
+    if (item.handle && typeof item.handle.remove === 'function') {
+      try {
+        item.handle.remove();
+      } catch (e) {
+        console.warn(`[Vela] Error calling handle.remove() for ${id}:`, e);
+      }
+    }
+    this.activeIndicatorsMap.delete(id);
+    this.notifyIndicatorsChanged();
+    return true;
+  }
+
+  /**
+   * Remove all active indicators from the chart
+   */
+  public clearAllIndicators(): void {
+    for (const item of this.activeIndicatorsMap.values()) {
+      if (item.handle && typeof item.handle.remove === 'function') {
+        try {
+          item.handle.remove();
+        } catch (_) {}
+      }
+    }
+    this.activeIndicatorsMap.clear();
+    this.notifyIndicatorsChanged();
+  }
+
+  public getActiveIndicatorsList(): ActiveIndicatorItem[] {
+    return Array.from(this.activeIndicatorsMap.values());
+  }
+
+  /**
+   * Backwards compatible name list
+   */
   public getActiveIndicators(): string[] {
-    return [...this.activeIndicators];
+    return Array.from(this.activeIndicatorsMap.values()).map((i) => i.name);
+  }
+
+  /**
+   * Get complete context snapshot of the chart for LLM technical analysis query
+   */
+  public getChartContextSnapshot(): ChartContextSnapshot {
+    return {
+      symbol: this.currentSymbol,
+      timeframe: this.currentTimeframe,
+      source: this.currentSource,
+      activeIndicators: this.getActiveIndicatorsList().map((i) => ({
+        id: i.id,
+        name: i.name,
+        visible: i.visible,
+        code: i.code,
+      })),
+    };
   }
 
   public resize() {
@@ -172,6 +293,7 @@ export class VelaChartManager {
   }
 
   public destroy() {
+    this.clearAllIndicators();
     if (this.chart) {
       try {
         this.chart.destroy();

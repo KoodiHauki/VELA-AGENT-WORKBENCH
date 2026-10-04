@@ -6,7 +6,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import requests
 from fastmcp import FastMCP
 
@@ -187,6 +187,45 @@ def push_indicator_to_chart(script_code: str, indicator_name: str = "Custom Indi
             "success": True,
             "message": f"Indikaattori '{indicator_name}' toimitettu (stdout fallback: bridge kuuntelee tulostetta).",
         }
+
+
+@mcp.tool()
+def download_historical_archive(
+    symbol: str = "BTCUSDT",
+    interval: str = "1h",
+    start_year: int = 2024,
+    start_month: int = 1,
+    end_year: int = 2024,
+    end_month: int = 1,
+    exchange: str = "binance",
+) -> Dict[str, Any]:
+    """Download full historical monthly kline ZIP/CSV archives directly from public archives (data.binance.vision).
+    
+    Extracts CSVs and caches them locally for ultra-fast deep backtesting.
+    
+    Args:
+        symbol: Coin symbol (e.g. 'BTCUSDT', 'ETHUSDT').
+        interval: Bar timeframe (e.g. '1h', '1d', '1w', '1M').
+        start_year: Start year (e.g. 2023).
+        start_month: Start month (1-12).
+        end_year: End year (e.g. 2024).
+        end_month: End month (1-12).
+        exchange: Public data archive source ('binance' for data.binance.vision).
+    """
+    from historical_downloader import download_binance_range
+    try:
+        res = download_binance_range(symbol, interval, start_year, start_month, end_year, end_month)
+        return res
+    except Exception as e:
+        logger.error("Error in download_historical_archive: %s", e)
+        return {"error": str(e), "symbol": symbol, "interval": interval}
+
+
+@mcp.tool()
+def list_historical_archives() -> List[Dict[str, Any]]:
+    """List all locally downloaded and cached historical CSV archives."""
+    from historical_downloader import list_downloaded_historical_archives
+    return list_downloaded_historical_archives()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Unit tests for backend modules."""
+"""Unit tests for backend modules, historical downloader, and indicator persistence."""
 
 import os
 import sys
@@ -9,6 +9,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from data_fetcher import get_candles, normalize_symbol, normalize_interval
 from engine import calculate_market_context, run_quantitative_backtest_logic
 from server import validate_pinets_syntax, get_market_context, run_quantitative_backtest
+from historical_downloader import (
+    download_binance_monthly_klines,
+    list_downloaded_historical_archives,
+    FREE_EXCHANGE_RESOURCES,
+)
+from bridge import _get_saved_indicators, _save_indicators
 
 
 class TestBackend(unittest.TestCase):
@@ -22,6 +28,10 @@ class TestBackend(unittest.TestCase):
         self.assertEqual(normalize_interval("60"), "1h")
         self.assertEqual(normalize_interval("240"), "4h")
         self.assertEqual(normalize_interval("1d"), "1d")
+        self.assertEqual(normalize_interval("1w"), "1w")
+        self.assertEqual(normalize_interval("W"), "1w")
+        self.assertEqual(normalize_interval("1M"), "1M")
+        self.assertEqual(normalize_interval("M"), "1M")
 
     def test_data_fetcher_and_context(self):
         df = get_candles("BTC", "1h", bars=50)
@@ -63,6 +73,27 @@ class TestBackend(unittest.TestCase):
         res_invalid = validate_pinets_syntax(invalid_script)
         self.assertFalse(res_invalid.get("valid"))
         self.assertIn("line", res_invalid)
+
+    def test_historical_downloader_and_resources(self):
+        self.assertIn("binance_vision", FREE_EXCHANGE_RESOURCES)
+        self.assertIn("bybit_public", FREE_EXCHANGE_RESOURCES)
+        self.assertIn("okx_public", FREE_EXCHANGE_RESOURCES)
+
+        # Download or load cached month
+        res = download_binance_monthly_klines("BTCUSDT", "1h", 2024, 1)
+        self.assertIn(res.get("status"), ["downloaded", "cached"])
+        self.assertEqual(res.get("month"), "2024-01")
+
+        archives = list_downloaded_historical_archives()
+        self.assertGreater(len(archives), 0)
+
+    def test_indicator_persistence(self):
+        indicators = _get_saved_indicators()
+        self.assertIsInstance(indicators, list)
+        self.assertGreater(len(indicators), 0)
+        first = indicators[0]
+        self.assertIn("name", first)
+        self.assertIn("code", first)
 
 
 if __name__ == "__main__":

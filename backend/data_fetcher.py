@@ -38,6 +38,11 @@ INTERVAL_MAP = {
     "60": "1h",
     "240": "4h",
     "D": "1d",
+    "W": "1w",
+    "w": "1w",
+    "M": "1M",
+    "1mo": "1M",
+    "mo": "1M",
 }
 
 
@@ -148,6 +153,21 @@ def get_candles(
 
     if raw_candles is None:
         try:
+            # Check if we have rich downloaded historical archive data from Binance Vision
+            if src == "binance":
+                try:
+                    from historical_downloader import load_combined_historical_df
+                    df_hist = load_combined_historical_df(coin, interval)
+                    if not df_hist.empty and len(df_hist) >= bars:
+                        logger.info("Serving %d candles from downloaded Binance Vision historical archives", len(df_hist))
+                        if bars > 0 and len(df_hist) > bars:
+                            df_hist = df_hist.iloc[-bars:].reset_index(drop=True)
+                        if "timestamp" not in df_hist.columns and "time_ms" in df_hist.columns:
+                            df_hist["timestamp"] = pd.to_datetime(df_hist["time_ms"], unit="ms", utc=True)
+                        return df_hist
+                except Exception as hist_err:
+                    logger.debug("Historical archive check skipped: %s", hist_err)
+
             if src == "binance":
                 raw_candles = fetch_candles_binance(coin, interval, limit=max(bars, 500))
             else:
