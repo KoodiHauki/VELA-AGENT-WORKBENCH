@@ -26,6 +26,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const presetChips = document.querySelectorAll('.preset-chip');
   const saveCurrentIndBtn = document.getElementById('save-current-ind-btn') as HTMLButtonElement;
 
+  // Dedicated chart analysis response card elements
+  const chartAnalysisCard = document.getElementById('chart-analysis-card') as HTMLElement;
+  const chartAnalysisOutput = document.getElementById('chart-analysis-output') as HTMLElement;
+  const analysisBiasBadge = document.getElementById('analysis-bias-badge') as HTMLElement;
+  const analysisTimestamp = document.getElementById('analysis-timestamp') as HTMLElement;
+  const copyAnalysisBtn = document.getElementById('copy-analysis-btn') as HTMLButtonElement;
+  const closeAnalysisBtn = document.getElementById('close-analysis-btn') as HTMLButtonElement;
+
   // Active indicators bar
   const activeIndicatorsList = document.getElementById('active-indicators-list') as HTMLElement;
   const clearAllIndicatorsBtn = document.getElementById('clear-all-indicators-btn') as HTMLButtonElement;
@@ -264,16 +272,59 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  let currentAnalysisText = '';
+
   bridgeClient.onSummary = (text: string) => {
     if (agentSummary) {
       agentSummary.innerHTML = formatMarkdownText(text);
     }
   };
 
+  bridgeClient.onChartAnalysisChunk = (delta: string) => {
+    if (!currentAnalysisText) {
+      // Clear loading placeholder on first chunk
+      if (chartAnalysisOutput) {
+        chartAnalysisOutput.innerHTML = '';
+      }
+    }
+    currentAnalysisText += delta;
+    if (chartAnalysisOutput) {
+      chartAnalysisOutput.innerHTML = formatMarkdownText(currentAnalysisText);
+    }
+    if (agentSummary) {
+      agentSummary.innerHTML = formatMarkdownText(currentAnalysisText);
+    }
+  };
+
   bridgeClient.onChartAnalysis = (analysis) => {
+    currentAnalysisText = analysis.text;
+    if (chartAnalysisOutput) {
+      chartAnalysisOutput.innerHTML = formatMarkdownText(analysis.text);
+    }
     if (agentSummary) {
       agentSummary.innerHTML = formatMarkdownText(analysis.text);
     }
+
+    if (analysisBiasBadge) {
+      analysisBiasBadge.className = 'analysis-badge';
+      const b = (analysis.bias || '').toUpperCase();
+      const txt = (analysis.text || '').toUpperCase();
+      if (b === 'BUY' || txt.includes('🟢 OSTO') || txt.includes('BUY')) {
+        analysisBiasBadge.classList.add('badge-buy');
+        analysisBiasBadge.textContent = '🟢 OSTO';
+      } else if (b === 'SELL' || txt.includes('🔴 MYYNTI') || txt.includes('SELL')) {
+        analysisBiasBadge.classList.add('badge-sell');
+        analysisBiasBadge.textContent = '🔴 MYYNTI';
+      } else {
+        analysisBiasBadge.classList.add('badge-neutral');
+        analysisBiasBadge.textContent = '🟡 NEUTRAALI';
+      }
+    }
+
+    if (analysisTimestamp) {
+      analysisTimestamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
     appendLog('[Kuvaaja-analyysi] Tekninen tilannearvio valmistunut!');
   };
 
@@ -510,9 +561,35 @@ document.addEventListener('DOMContentLoaded', () => {
   // 5. Right Sidebar: Dedicated "Kysy kuvaajasta"
   function handleAskChart(questionText?: string) {
     const q = questionText || promptInput.value.trim() || 'Mikä on tämänhetkinen tilanne? Onko osto vai myynti?';
+    promptInput.value = q;
     const model = modelSelect.value;
     const mode = modeSelect ? modeSelect.value : 'auto';
     const snapshot = chartManager.getChartContextSnapshot();
+
+    currentAnalysisText = '';
+
+    // Show dedicated analysis card immediately right below the prompt & chips
+    if (chartAnalysisCard) {
+      chartAnalysisCard.style.display = 'block';
+    }
+
+    if (analysisBiasBadge) {
+      analysisBiasBadge.className = 'analysis-badge badge-neutral';
+      analysisBiasBadge.textContent = '🟡 ANALYSOIDAAN...';
+    }
+
+    if (analysisTimestamp) {
+      analysisTimestamp.textContent = '';
+    }
+
+    if (chartAnalysisOutput) {
+      chartAnalysisOutput.innerHTML = `
+        <div class="analysis-loading-box">
+          <div class="analysis-pulse-dot"></div>
+          <span>Analysoidaan kuvaajan teknistä tilannetta, indikaattoreita ja avaintasoja...</span>
+        </div>
+      `;
+    }
 
     appendLog(`[Kysy kuvaajasta] Haetaan tilannearvio kysymykselle: "${q}"...`);
     if (agentSummary) {
@@ -521,6 +598,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     sendBtn.disabled = true;
     sendBtn.textContent = 'Analysoidaan...';
+
+    // Scroll analysis card into view so user sees it right away
+    if (chartAnalysisCard) {
+      chartAnalysisCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 
     bridgeClient.askAboutChart(q, snapshot, model, 'high', mode);
   }
@@ -548,6 +630,33 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+
+  // Copy analysis button
+  if (copyAnalysisBtn) {
+    copyAnalysisBtn.addEventListener('click', async () => {
+      if (currentAnalysisText) {
+        try {
+          await navigator.clipboard.writeText(currentAnalysisText);
+          const origText = copyAnalysisBtn.textContent;
+          copyAnalysisBtn.textContent = 'Kopioitu! ✔️';
+          setTimeout(() => {
+            copyAnalysisBtn.textContent = origText;
+          }, 2000);
+        } catch (e) {
+          appendLog(`[Leikepöytä] Kopiointivirhe: ${e}`);
+        }
+      }
+    });
+  }
+
+  // Close analysis card button
+  if (closeAnalysisBtn) {
+    closeAnalysisBtn.addEventListener('click', () => {
+      if (chartAnalysisCard) {
+        chartAnalysisCard.style.display = 'none';
+      }
+    });
+  }
 
   // Source and Timeframe dropdown changes
   if (sourceSelect) {

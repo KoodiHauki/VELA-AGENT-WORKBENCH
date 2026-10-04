@@ -262,6 +262,7 @@ class BridgeServer:
             ]
 
             full_response = ""
+            process = None
             try:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -280,23 +281,54 @@ class BridgeServer:
                             continue
                         try:
                             evt = json.loads(decoded)
-                            evt_type = evt.get("type")
-                            if evt_type == "text_delta":
-                                chunk = evt.get("delta", "")
-                                full_response += chunk
-                            elif evt_type == "final_response":
-                                full_response = evt.get("response", full_response)
+                            evt_name = evt.get("event") or evt.get("type")
+                            su = evt.get("step_update") or {}
+                            res = evt.get("result") or {}
+
+                            if evt_name == "step_update" and su.get("step_type") == "agent_response":
+                                chunk = su.get("text_delta") or ""
+                                if chunk:
+                                    full_response += chunk
+                                    await self.send_to(ws, {"type": "chart_analysis_chunk", "delta": chunk})
+                            elif evt_name == "text_delta":
+                                chunk = evt.get("delta") or su.get("text_delta") or ""
+                                if chunk:
+                                    full_response += chunk
+                                    await self.send_to(ws, {"type": "chart_analysis_chunk", "delta": chunk})
+                            elif evt_name == "result":
+                                resp = res.get("response") or ""
+                                if resp:
+                                    full_response = resp
+                            elif evt_name == "final_response":
+                                resp = evt.get("response") or ""
+                                if resp:
+                                    full_response = resp
                         except json.JSONDecodeError:
-                            full_response += decoded + "\n"
+                            pass
 
-                await read_stream()
-                await process.wait()
+                await asyncio.wait_for(read_stream(), timeout=20.0)
+                await asyncio.wait_for(process.wait(), timeout=5.0)
 
-                if full_response:
-                    await self.send_to(ws, {"type": "chart_analysis", "text": full_response})
-                    await self.send_to(ws, {"type": "summary", "text": full_response})
+                if full_response.strip():
+                    bias_tag = "NEUTRAL"
+                    fr_upper = full_response.upper()
+                    if "OSTO" in fr_upper or "BUY" in fr_upper:
+                        if not ("MYYNTI" in fr_upper and fr_upper.find("MYYNTI") < fr_upper.find("OSTO")):
+                            bias_tag = "BUY"
+                    elif "MYYNTI" in fr_upper or "SELL" in fr_upper:
+                        bias_tag = "SELL"
+
+                    await self.send_to(ws, {"type": "chart_analysis", "text": full_response.strip(), "bias": bias_tag})
+                    await self.send_to(ws, {"type": "summary", "text": full_response.strip()})
                     await self.send_to(ws, {"type": "done"})
                     return
+            except asyncio.TimeoutError:
+                logger.warning("CLI technical analysis timed out after 20s, falling back to instant quantitative engine.")
+                if process:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.warning("CLI technical analysis query failed, falling back to deterministic logic: %s", e)
 
@@ -538,27 +570,42 @@ class BridgeServer:
 
                     try:
                         evt = json.loads(decoded)
-                        evt_type = evt.get("type")
+                        evt_name = evt.get("event") or evt.get("type")
+                        su = evt.get("step_update") or {}
+                        res = evt.get("result") or {}
 
-                        if evt_type == "step_start":
+                        if evt_name == "step_start":
                             step_title = evt.get("title") or evt.get("name") or "Agentin vaihe"
                             await self.send_to(ws, {"type": "log", "message": f"[Vaihe] {step_title}"})
 
-                        elif evt_type == "step_update":
-                            step_type = evt.get("step_type", "")
-                            if step_type == "tool":
-                                tool_name = evt.get("tool_name", "työkalu")
-                                args = evt.get("arguments", {})
+                        elif evt_name == "step_update":
+                            step_type = su.get("step_type") or evt.get("step_type", "")
+                            if step_type in ("tool", "tool_call") or "tool_calls" in su:
+                                tool_name = su.get("tool_name") or evt.get("tool_name", "työkalu")
+                                args = su.get("arguments") or evt.get("arguments", {})
                                 await self.send_to(ws, {
                                     "type": "log",
                                     "message": f"[Työkalukutsu] {tool_name}({json.dumps(args)[:100]})",
                                 })
+                            elif step_type == "agent_response":
+                                delta = su.get("text_delta") or ""
+                                if delta:
+                                    full_response_text += delta
+                                    await self.send_to(ws, {"type": "summary", "text": full_response_text})
 
-                        elif evt_type == "text_delta":
-                            chunk = evt.get("delta", "")
-                            full_response_text += chunk
+                        elif evt_name == "text_delta":
+                            chunk = evt.get("delta") or su.get("text_delta") or ""
+                            if chunk:
+                                full_response_text += chunk
+                                await self.send_to(ws, {"type": "summary", "text": full_response_text})
 
-                        elif evt_type == "final_response":
+                        elif evt_name == "result":
+                            resp = res.get("response") or ""
+                            if resp:
+                                full_response_text = resp
+                                await self.send_to(ws, {"type": "summary", "text": full_response_text})
+
+                        elif evt_name == "final_response":
                             full_response_text = evt.get("response", full_response_text)
                             await self.send_to(ws, {"type": "summary", "text": full_response_text})
 

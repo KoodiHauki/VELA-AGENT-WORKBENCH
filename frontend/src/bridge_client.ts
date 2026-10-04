@@ -44,6 +44,7 @@ export type SummaryListener = (text: string) => void;
 export type DoneListener = () => void;
 export type ConnectionListener = (connected: boolean, status: string) => void;
 export type ChartAnalysisListener = (analysis: { text: string; bias?: string }) => void;
+export type ChartAnalysisChunkListener = (delta: string) => void;
 
 export class BridgeClient {
   private ws: WebSocket | null = null;
@@ -57,6 +58,7 @@ export class BridgeClient {
   public onDone: DoneListener | null = null;
   public onConnectionChange: ConnectionListener | null = null;
   public onChartAnalysis: ChartAnalysisListener | null = null;
+  public onChartAnalysisChunk: ChartAnalysisChunkListener | null = null;
 
   constructor() {}
 
@@ -103,6 +105,8 @@ export class BridgeClient {
             if (this.onRenderIndicator) this.onRenderIndicator(data.name || 'Custom Indicator', data.code || '');
           } else if (type === 'summary') {
             if (this.onSummary) this.onSummary(data.text || '');
+          } else if (type === 'chart_analysis_chunk') {
+            if (this.onChartAnalysisChunk) this.onChartAnalysisChunk(data.delta || '');
           } else if (type === 'chart_analysis') {
             if (this.onChartAnalysis) this.onChartAnalysis({ text: data.text || '', bias: data.bias });
           } else if (type === 'done') {
