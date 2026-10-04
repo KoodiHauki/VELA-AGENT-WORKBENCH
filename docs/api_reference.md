@@ -175,18 +175,51 @@ Vastaanottaa backtest-metriikat ja päivittää ne reaaliaikaisesti selaimen til
 - **Pyyntö (JSON):** Backtest-metriikkaobjekti.
 - **Vastaus:** `{"status": "ok"}`
 
-### `GET /api/candles`
-Noutaa kynttilähistorian JSON-muodossa.
+### `GET /api/symbols`
+Palauttaa saatavilla olevat pörssiparit (Hyperliquid 234 kpl, Binance Spot 503 kpl) levyvälimuistista tai suoralla haulla.
 - **Kyselyparametrit:**
-  - `symbol`: e.g. `BTC`
-  - `timeframe`: e.g. `1h`
+  - `source`: `"all"`, `"hyperliquid"` tai `"binance"`
+  - `refresh`: `true` tai `false` (pakotettu päivitys pörssirajapinnoista)
+- **Vastaus (JSON):**
+  ```json
+  {
+    "status": "ok",
+    "source": "all",
+    "count": 737,
+    "symbols": [
+      {
+        "symbol": "BTC",
+        "pair": "BTC/USD",
+        "base": "BTC",
+        "quote": "USD",
+        "source": "hyperliquid",
+        "maxLeverage": 40
+      },
+      {
+        "symbol": "BTCUSDT",
+        "pair": "BTC/USDT",
+        "base": "BTC",
+        "quote": "USDT",
+        "source": "binance"
+      }
+    ]
+  }
+  ```
+
+### `GET /api/candles`
+Noutaa kynttilähistorian JSON-muodossa live-pörsseistä tai paikallisesta Binance Vision -arkistosta.
+- **Kyselyparametrit:**
+  - `symbol`: e.g. `BTC` tai `BTCUSDT`
+  - `timeframe`: e.g. `1h`, `1d`, `1w`, `1M`
   - `bars`: e.g. `100` (oletus `1000`)
-  - `source`: `hyperliquid` tai `binance`
+  - `source`: `"hyperliquid"`, `"binance"` tai `"archive"`
+  - `file`: (valinnainen kun `source=archive`) tietty ladattu CSV-tiedosto, esim. `BTCUSDT-1h-2024-01.csv`
 - **Vastaus (JSON):**
   ```json
   {
     "symbol": "BTC",
     "timeframe": "1h",
+    "source": "hyperliquid",
     "candles": [
       {
         "openTime": 1727985600000,
@@ -200,6 +233,26 @@ Noutaa kynttilähistorian JSON-muodossa.
   }
   ```
 
+### `POST /api/historical/download`
+Lataa ja purkaa kynttiläarkiston `data.binance.vision` -arkistosta valitulle aikavälille.
+- **Pyyntö (JSON):**
+  ```json
+  {
+    "symbol": "BTCUSDT",
+    "interval": "1h",
+    "start_year": 2024,
+    "start_month": 1,
+    "end_year": 2024,
+    "end_month": 3
+  }
+  ```
+
+### `GET /api/historical/list`
+Listaa kaikki levylle ladatut ja puretut historialliset CSV-arkistot sekä tiedot muista rekisteröitymisvapaista julkisista arkistoista (Bybit, OKX).
+
+### `GET /api/indicators`, `POST /api/indicators`, `DELETE /api/indicators/{id}`
+Hallinnoi käyttäjän tallennettuja indikaattoreita pysyvässä JSON-tiedostossa (`backend/indicators/saved_indicators.json`).
+
 ### `GET /api/health`
 Palvelimen terveydentila ja aktiivisten asiakkaiden määrä.
 - **Vastaus:** `{"status": "healthy", "service": "vela-agent-bridge", "clients_connected": 1}`
@@ -211,6 +264,26 @@ Palvelimen terveydentila ja aktiivisten asiakkaiden määrä.
 Kaikki reaaliaikainen vuorovaikutus selaimen ja taustajärjestelmän välillä kulkee WebSocketin kautta JSON-muodossa.
 
 ### 3.1 Selaimelta palvelimelle (Client -> Server)
+
+#### `analyze_chart` (Kysy kuvaajasta)
+Lähettää kaavion tilannekuvan ja käyttäjän teknisen kysymyksen analysoitavaksi:
+```json
+{
+  "type": "analyze_chart",
+  "question": "Mikä on tämänhetkinen tilanne? Onko osto vai myynti?",
+  "snapshot": {
+    "symbol": "BTC",
+    "timeframe": "60",
+    "source": "hyperliquid",
+    "activeIndicators": [
+      { "id": "ind_1", "name": "EMA 20/50", "visible": true }
+    ]
+  },
+  "model": "gemini-3.8-flash-high",
+  "effort": "high",
+  "mode": "auto"
+}
+```
 
 #### `generate_indicator`
 Käynnistää indikaattorin analysoinnin, koodauksen ja testauksen.

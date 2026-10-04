@@ -103,10 +103,13 @@ def download_binance_monthly_klines(
     
     Example URL:
     https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2024-01.zip
+    Note: Binance Vision uses '1mo' in URLs for monthly klines, not '1M'.
     """
     clean_sym = clean_symbol_for_binance(symbol)
     month_str = f"{year:04d}-{month:02d}"
-    url = f"{BINANCE_VISION_BASE}/monthly/klines/{clean_sym}/{interval}/{clean_sym}-{interval}-{month_str}.zip"
+    # Binance Vision uses '1mo' for monthly intervals in archive URLs
+    vision_interval = "1mo" if interval in ("1M", "1mo") else interval
+    url = f"{BINANCE_VISION_BASE}/monthly/klines/{clean_sym}/{vision_interval}/{clean_sym}-{vision_interval}-{month_str}.zip"
     
     target_dir = os.path.join(HISTORICAL_DIR, "binance", clean_sym, interval)
     _ensure_dir(target_dir)
@@ -281,11 +284,24 @@ def list_downloaded_historical_archives() -> List[Dict[str, Any]]:
 def load_combined_historical_df(symbol: str, interval: str) -> pd.DataFrame:
     """Load and concatenate all available historical CSV files for given symbol and interval."""
     clean_sym = clean_symbol_for_binance(symbol)
-    target_dir = os.path.join(HISTORICAL_DIR, "binance", clean_sym, interval)
-    if not os.path.exists(target_dir):
+    
+    # Check primary interval folder and potential aliases (e.g. 1M vs 1mo)
+    aliases = [interval]
+    if interval in ("1M", "1mo"):
+        aliases = ["1M", "1mo"]
+    elif interval in ("1w", "1W", "W"):
+        aliases = ["1w", "1W", "W"]
+
+    csv_files = []
+    for alt in aliases:
+        target_dir = os.path.join(HISTORICAL_DIR, "binance", clean_sym, alt)
+        if os.path.exists(target_dir):
+            csv_files.extend(glob.glob(os.path.join(target_dir, "*.csv")))
+
+    csv_files = sorted(list(set(csv_files)))
+    if not csv_files:
         return pd.DataFrame()
 
-    csv_files = sorted(glob.glob(os.path.join(target_dir, "*.csv")))
     dfs = []
     for p in csv_files:
         df = parse_binance_csv(p)
@@ -297,3 +313,27 @@ def load_combined_historical_df(symbol: str, interval: str) -> pd.DataFrame:
 
     combined = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["time_ms"]).sort_values("time_ms").reset_index(drop=True)
     return combined
+
+
+def load_historical_file_df(filename: str) -> pd.DataFrame:
+    """Find and parse a specific downloaded historical CSV archive by filename."""
+    if not os.path.exists(HISTORICAL_DIR):
+        return pd.DataFrame()
+
+    for root, _, files in os.walk(HISTORICAL_DIR):
+        if filename in files:
+            full_path = os.path.join(root, filename)
+            logger.info("Loading single historical archive file: %s", full_path)
+            return parse_binance_csv(full_path)
+
+    # Try matching basename without directory or partial match
+    for root, _, files in os.walk(HISTORICAL_DIR):
+        for f in files:
+            if f.endswith(".csv") and (filename in f or os.path.splitext(filename)[0] in f):
+                full_path = os.path.join(root, f)
+                logger.info("Found matching historical archive file: %s", full_path)
+                return parse_binance_csv(full_path)
+
+    logger.warning("Historical archive file not found: %s", filename)
+    return pd.DataFrame()
+

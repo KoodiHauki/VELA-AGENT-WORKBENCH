@@ -37,91 +37,103 @@ Skripti käynnistää automaattisesti kaksi taustapalvelua:
 ## 2. Käyttöliittymän Osat
 
 ```
-+-----------------------------------------------------------------------------------------+
-| [VELA]  [Datalähde: Binance v] [Pari: BTC v] [Aika: 1h v] [Malli v] [Tila v]  [WS Dots]  |
-+-------------------------------------------------------+---------------------------------+
-|                                                       | [Indikaattoripyyntö: Syötä teksti] |
-|                                                       | [⚡ EMA] [📊 RSI] [📈 Breakout]  |
-|                                                       |                                 |
-|               Vela WebGL2 -kaavio                     | [Reaaliaikainen Agenttiterminaali]|
-|             (Kynttilät + Indikaattorit)               |                                 |
-|                                                       | [Metriikat: WinRate, PF, DD]    |
-|                                                       |                                 |
-|                                                       | [Sanallinen markkinakatsaus]    |
-+-------------------------------------------------------+---------------------------------+
++--------------------------------------------------------------------------------------------------------+
+| [VELA]  [Datalähde: Hyperliquid v] [🔍 BTC/USD HL v] [Aika: 1h v] [Malli v] [Tila v] [📊] [💾] [💬]     |
++--------------------------------------------------------------------------------------------------------+
+| ⭐ Suosikit: [⭐ BTC/USD] [⭐ ETH/USD] [⭐ SOL/USD] [⭐ BTC/USDT] ... [+ Lisää nykyinen]                |
++--------------------------------------------------------------------------------------------------------+
+| Aktiiviset indikaattorit: [👁️ EMA 20/50 ✕] [👁️ RSI Extreme ✕] [Tyhjennä kaikki]                       |
++-------------------------------------------------------+------------------------------------------------+
+|                                                       | 💬 Kysy kuvaajasta                             |
+|                                                       | [Syötä kysymys: "Mikä on käyrän tilanne?"]     |
+|                                                       | [🎯 Osto/Myynti] [📍 Tasot] [⚖️ Konfluenssi]   |
+|               Vela WebGL2 -kaavio                     |                                                |
+|             (Kynttilät + Indikaattorit)               | Objektiivinen Tilannekatsaus (AI Raportti)     |
+|                                                       |                                                |
+|                                                       | Kvantitatiiviset Metriikat (Backtest)          |
+|                                                       |                                                |
+|                                                       | Agentin Suoritusloki (Reaaliaikainen terminaali)|
++-------------------------------------------------------+------------------------------------------------+
 ```
 
-### 2.1 Yläpalkin Valinnat
-
+### 2.1 Yläpalkki ja Markkinaparien Haku
 1. **Datalähde**:
-   - `Hyperliquid`: Suora WebSocket-pörssidata ja jatkuva reaaliaikainen kynttiläpäivitys.
-   - `Binance`: Globaali markkinadata (`api.binance.com`).
-2. **Markkinapari**: Valitse `BTC`, `ETH`, `SOL` tai `DOGE`.
-3. **Aikajänne**: Valitse kynttilävälit `1m`, `5m`, `15m`, `1h`, `4h` tai `1d`.
-4. **Malli**: Valitse käytettävä tekoälymalli (`Gemini 3.8 Flash`, `Gemini 3.1 Pro`, `Claude Sonnet 4.6`).
-5. **Suoritustila**:
-   - `Antigravity AI (Täysi orkestrointi)`: Täysi agenttisilmukka, joka analysoi tilanteen, kirjoittaa koodin, ajaa syntaksivalidoinnin ja korjaa mahdolliset virheet itsenäisesti.
-   - `Pika-analyysi (Välitön < 500ms)`: Paikallinen suora kvanttilaskenta, joka tuottaa indikaattorin, backtestaa 500 kynttilää ja piirtää sen kaaviolle välittömästi.
-6. **Tilavalot**:
-   - `Data WS`: Vihreä valo vahvistaa markkinadatan yhteyden.
-   - `Bridge`: Vihreä valo vahvistaa yhteyden Python-taustasiltaan (portti 8765).
+   - `Hyperliquid`: 234 aktiivista krypto-ikifutuuria suoralla WebSocket-syötteellä.
+   - `Binance Spot`: Yli 500 aktiivista USDT-kaupankäyntiparia.
+   - `Arkisto (Binance Vision)`: Paikallisesti ladatut historialliset CSV-arkistot vuodesta 2017 alkaen.
+2. **Markkinaparihaku (`🔍 BTC/USD ▼`)**:
+   - Klikkaamalla painiketta avautuu nopea hakumodaali, josta voi etsiä mitä tahansa yli 730 saatavilla olevasta tokenista (esim. BTC, ETH, SOL, SUI, DOGE, PEPE).
+   - Suodattimet: *Kaikki*, *⭐ Suosikit*, *Hyperliquid (234)*, *Binance Spot (503)*.
+   - Jokaisella rivillä on tähti ⭐, jota klikkaamalla parin voi tallentaa suosikiksi tai poistaa suosikeista.
+3. **⭐ Suosikkipalkki**:
+   - Yläpalkin alla näkyvät tallennetut suosikkiparit (tallennus selaimen `localStorageen`).
+   - Yhdellä klikkauksella voit vaihtaa suoraan seurattavaa markkinaa ja kaaviota.
+4. **Aikajänne**: Valitse `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, `1w` (Viikko) tai `1M` (Kuukausi).
+5. **Aktiiviset indikaattorit -palkki**:
+   - Kaikki kaaviolle lisätyt indikaattorit näkyvät omina merkkeinään.
+   - Voit piilottaa/näyttää (`👁️` / `🙈`) tai poistaa (`✕`) yksittäisiä indikaattoreita ilman, että koko kaavio nollautuu.
 
 ---
 
-## 3. Indikaattorin Luominen ja Ajo
+## 3. "Kysy Kuvaajasta" – Tekninen Tekoälyanalyysi
 
-### 3.1 Pikavalinnat (Chips)
+Oikea sivupaneeli on omistettu tekniselle analyysille ja interaktiiviselle kyselylle:
 
-Voit kokeilla valmiita optimoituja indikaattoreita yhdellä klikkauksella:
-- `⚡ EMA 20/50 Crossover`: Kahden eksponentiaalisen liukuvan keskiarvon dynaaminen trendi osto- ja myyntisignaaleilla.
-- `📊 RSI Extreme (30/70)`: Momentumoskillaattori yliostettujen ja ylimyytyjen alueiden tunnistamiseen.
-- `📈 Breakout Channel 20`: 20 kynttilän Donchian-kanavamurto tuki- ja vastustasoilla.
+### 3.1 Pika-analyysipainikkeet
+- **🎯 Osto vai myynti? (Bias)**: Analysoi trendin suunnan, liukuvien keskiarvojen järjestyksen (EMA 20/50, SMA 100) ja antaa objektiivisen suuntasuosituksen.
+- **📍 Tuki- ja vastustasot**: Laskee viimeisimmän 100 kynttilän huiput ja pohjat sekä ATR-volatiliteettialueet.
+- **⚖️ Signaalien konfluenssi**: Arvioi kaikkien ruudulla näkyvien aktiivisten indikaattoreiden ja hintatoiminnan yhteensopivuutta.
+- **📈 Trendi & RSI**: Mittaa momentumin voimakkuuden ja yliostetut/ylimyydyt alueet.
+- **🛡️ ATR & Stop-Loss**: Suosittelee riskinhallintatasoja ja suojavyöhykkeitä markkinan volatiliteetin perusteella.
 
-### 3.2 Omat Luonnollisen Kielen Pyynnöt
-
-Kirjoita komentokenttään vapaamuotoinen pyyntö suomeksi tai englanniksi ja paina **Enter** tai klikkaa **Aja**:
-
-**Esimerkkejä hyvistä kehotteista:**
-- *"Luo nopea scalping-indikaattori 5m aikajänteelle, jossa EMA 9 ja EMA 21 risteys."*
-- *"Tee RSI 14 oskillaattori, jossa dynaaminen väri kun arvo on alle 30 tai yli 70."*
-- *"Rakenna 20 kynttilän kanavamurto, joka piirtää kanavan ylä- ja alareunan sekä keskilinjan."*
-- *"Luo 볼 Bollinger Bands 20, 2.0 keskihajonnalla ja korosta puristustilat."*
+### 3.2 Omat Kysymykset
+Voit kirjoittaa tekstikenttään minkä tahansa kysymyksen suomeksi tai englanniksi:
+- *"Mikä on riskitaso, jos avaan pitkän position nyt tasolta 69 500?"*
+- *"Onko havaittavissa volyymipoikkeamia tai divergenssejä?"*
 
 ---
 
-## 4. Tulosten Tulkitseminen
+## 4. Indikaattorikirjasto ja Uuden Luonti
 
-Kun analyysi valmistuu:
-1. **Kaavio**: WebGL2-kaavio piirtää uuden indikaattorin viipymättä GPU-kiihdytettynä kynttilöiden päälle tai erilliseen ruutuun.
-2. **Terminaali**: Näet suoratoistona jokaisen vaiheen:
-   - `[Konteksti]`: Markkinan todellinen hinta, ATR(14) -volatiliteetti, trendi ja volyymisuhde.
-   - `[Validointi]`: PineTS-kääntäjän vahvistus syntaksin toimivuudesta.
-   - `[Laskenta]`: 500 kynttilän simulaation tulokset.
-3. **Tilastokortit**:
-   - **Voittosuhde**: Voitollisten kauppojen prosenttiosuus historiassa.
-   - **Profit Factor**: Bruttovoittojen suhde bruttotappioihin (arvo yli 1.5 on vahva).
-   - **Drawdown**: Suurin pääoman pudotus huippuarvosta.
-   - **Kaupat**: Simuloitujen kauppojen kokonaismäärä.
-   - **Keskituotto / Kokonaistuotto**: Kauppakohtainen ja kumulatiivinen tuotto.
-4. **Sanallinen tilannekatsaus**: Tekoäly antaa tiiviin, objektiivisen katsauksen, joka nojaa ainoastaan laskettuihin tilastoihin ilman spekulatiivisia hallusinaatioita.
+Paina yläpalkin painiketta **📊 Indikaattorit** avataksesi kirjastomodaalin:
 
----
+### 4.1 Omat Indikaattorit
+- Tallennetut omat Pine Script v5 -indikaattorisi tallentuvat pysyvästi levylle (`backend/indicators/saved_indicators.json`).
+- Voit lisätä minkä tahansa indikaattorin kaaviolle napilla **+ Lisää kaavioon** tai poistaa sen kirjastosta.
 
-## 5. Tailnet ja Mobiilikäyttö
+### 4.2 TradingView Community Scripts (10 kpl)
+- Sisältää 10 suosittua ja testattua yhteisöskriptiä (mm. *Supertrend Multi-Length*, *Waddah Attar Explosion*, *Volume Flow Indicator*, *Nadaraya-Watson Envelope*).
+- Voit suodattaa kategorioittain (Trendi, Oskillaattorit, Volatiliteetti, Hintatoiminta) tai hakea vapaalla tekstipohjaisella haulla.
 
-Vela Agent Workbench on suunniteltu käytettäväksi suoraan älypuhelimella:
-1. Käynnistä palvelin kotikoneellasi (`run.ps1`).
-2. Yhdistä puhelimesi Tailscale-verkkoon.
-3. Avaa puhelimen Chrome- tai Safari-selaimeen koneesi Tailscale MagicDNS -nimi portilla `5173` (esim. `http://desktop-abc:5173`).
-4. Voit tarkastella WebGL2-kaaviota kosketuseleillä (zoom ja pan) ja syöttää puhelimen näppäimistöllä tai sanelulla uusia analyysipyyntöjä mistä tahansa ilman julkisia portteja.
+### 4.3 + Luo Uusi Indikaattori
+Välilehti tarjoaa kaksi helppoa tapaa:
+1. **🤖 Luo tekoälyllä (Prompt -> Pine Script v5)**:
+   - Kirjoita sanallinen kuvaus tai valitse valmis pohja (*EMA 20/50 Crossover*, *RSI Extreme*, *Breakout Channel*, *Bollinger Squeeze*, *Supertrend ATR*).
+   - Valitse malli ja paina **🚀 Generoi indikaattori**. Tekoäly kirjoittaa koodin, validoi syntaksin ja tuottaa koodin esikatseluun.
+   - Voit testata koodia suoraan kaaviolla tai tallentaa sen kirjastoon.
+2. **✏️ Kirjoita koodi manuaalisesti**:
+   - Kirjoita tai liitä Pine Script v5 -koodi, anna nimi ja kuvaus ja tallenna kirjastoon.
 
 ---
 
-## 6. Vianmääritys (Troubleshooting)
+## 5. Täysi Historiadata (data.binance.vision)
 
-| Ongelma | Syy | Ratkaisu |
-| :--- | :--- | :--- |
-| **Bridge-tilavalo on harmaa / punainen** | Taustasilta (portti 8765) ei ole käynnissä tai palomuuri estää yhteyden. | Käynnistä `python backend/bridge.py` tai aja `.\run.ps1`. Varmista, ettei portti 8765 ole varattu. |
-| **Kaavio ei lataa kynttilöitä** | Pörssin WebSocket tai REST -rajapinta ei vastaa. | Vaihda yläpalkista datalähdettä (esim. Hyperliquid -> Binance tai päinvastoin). |
-| **Antigravity CLI ei käynnisty** | `agy` tai `antigravity` ei löydy PATH-muuttujasta. | Järjestelmä siirtyy automaattisesti käyttämään nopeaa sisäänrakennettua pika-analyysiä (`instant mode`). Voit asentaa CLI:n tai asettaa `AGY_BIN`-ympäristömuuttujan. |
-| **Pine Script virhe kaaviolla** | Koodi sisältää funktioita, joita PineTS ei tue. | Antigravityn itsenäinen korjaussilmukka pyrkii korjaamaan koodin automaattisesti. Voit myös käyttää pikatilaa (`Pika-analyysi`). |
+Paina yläpalkin painiketta **💾 Historiadata**:
+
+### 5.1 Julkisten ZIP/CSV-Arkistojen Lataus
+- Binance Data Collection tarjoaa ilman kirjautumista tai API-rajoituksia kuukausikohtaiset kynttiläarkistot vuodesta 2017 alkaen.
+- Valitse pari (esim. `BTCUSDT`), aikaväli (`1h`, `1d`, `1w`, `1M`), alkuvuosi ja -kuukausi sekä loppuvuosi ja -kuukausi (esim. 2023/01 – 2024/03).
+- Paina **Lataa ja pura arkisto**. Palvelin lataa ZIP-paketit taustalla, purkaa CSV-tiedostot ja indeksoi ne välimuistiin.
+
+### 5.2 📊 Avaa Kaaviolla (Arkistokatselin)
+- Kaikki paikallisesti ladatut arkistot listataan taulukossa.
+- Jokaisen tiedoston kohdalla on painike **📊 Avaa kaaviolla**, jota klikkaamalla kyseinen historiadata latautuu välittömästi Vela WebGL2 -kaaviolle tarkasteltavaksi!
+
+---
+
+## 6. Muut Julkiset Datalähteet
+
+Järjestelmä tukee tai dokumentoi myös seuraavat rekisteröitymisvapaat julkiset rajapinnat:
+- **Bybit Public Archive**: `https://public.bybit.com/kline/` (Suorat kynttilä- ja kauppa-arkistot).
+- **OKX Historical REST API**: `https://www.okx.com/api/v5/market/history-candles` (Vuosien historia ilman avaimia).
+- **Hyperliquid Info API**: Suora tuki jopa 5000 kynttilälle kerralla.

@@ -580,6 +580,196 @@
       margin-top: 6px;
     }
 
+    /* Favorites Bar */
+    .favorites-bar {
+      background-color: #0b0e17;
+      border-bottom: 1px solid var(--border-color);
+      padding: 4px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      min-height: 32px;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .fav-bar-label {
+      font-weight: 700;
+      color: #f59e0b;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .favorites-list {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      overflow-x: auto;
+    }
+
+    .favorite-chip {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+
+    .favorite-chip:hover {
+      border-color: #3b82f6;
+      background-color: #1e2638;
+    }
+
+    .favorite-chip.active {
+      border-color: #f59e0b;
+      background-color: rgba(245, 158, 11, 0.12);
+      color: #fbbf24;
+      font-weight: 700;
+    }
+
+    .fav-remove-btn {
+      color: #64748b;
+      cursor: pointer;
+      padding: 0 2px;
+      font-size: 0.8rem;
+    }
+
+    .fav-remove-btn:hover {
+      color: #ef4444;
+    }
+
+    /* Symbol Modal & Picker */
+    .symbol-picker-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-weight: 600;
+    }
+
+    .source-mini-badge {
+      font-size: 0.65rem;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background-color: #1e293b;
+      color: #94a3b8;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .symbol-grid-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .symbol-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background-color: var(--bg-card);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .symbol-row:hover {
+      background-color: #1e2638;
+      border-color: #3b82f6;
+    }
+
+    .symbol-row.active {
+      border-color: #3b82f6;
+      background-color: rgba(59, 130, 246, 0.15);
+    }
+
+    .symbol-row-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .symbol-star-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0 2px;
+      color: #475569;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+
+    .symbol-star-btn:hover, .symbol-star-btn.starred {
+      color: #f59e0b;
+    }
+
+    .symbol-pair-name {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #fff;
+    }
+
+    .symbol-base-badge {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .symbol-source-badge {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .symbol-source-badge.hl {
+      background-color: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+    }
+
+    .symbol-source-badge.bi {
+      background-color: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+    }
+
+    /* Sub-tabs inside Modal */
+    .sub-tabs-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+
+    .sub-tab-btn {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    .sub-tab-btn.active {
+      background-color: #2563eb;
+      border-color: #2563eb;
+      color: #fff;
+    }
+
     /* Responsive Layout */
     @media (max-width: 900px) {
       .app-main {
@@ -614,14 +804,19 @@
     <div class="controls-bar">
       <select id="source-select" title="Valitse pörssin datalähde">
         <option value="hyperliquid" selected>Hyperliquid</option>
-        <option value="binance">Binance</option>
+        <option value="binance">Binance Spot</option>
+        <option value="archive">Arkisto (Binance Vision)</option>
       </select>
 
-      <select id="symbol-select">
+      <!-- Searchable Symbol Picker Trigger -->
+      <button id="btn-symbol-picker" class="btn-secondary symbol-picker-btn" title="Hae ja valitse markkinapari (Hyperliquid & Binance)">
+        <span>🔍</span>
+        <strong id="current-symbol-display">BTC/USD</strong>
+        <span id="current-source-badge" class="source-mini-badge hl">HL</span>
+        <span style="font-size:0.7rem; color:var(--text-muted);">▼</span>
+      </button>
+      <select id="symbol-select" style="display:none;">
         <option value="BTC" selected>BTC</option>
-        <option value="ETH">ETH</option>
-        <option value="SOL">SOL</option>
-        <option value="DOGE">DOGE</option>
       </select>
 
       <select id="timeframe-select">
@@ -664,6 +859,15 @@
     </div>
   </header>
 
+  <!-- Favorites Bar (⭐ Suosikkipalkki 1-klikkauksella markkinavaihtoon) -->
+  <div id="favorites-bar" class="favorites-bar">
+    <div class="fav-bar-label">⭐ Suosikit:</div>
+    <div id="favorites-list" class="favorites-list">
+      <!-- Generated favorite chips -->
+    </div>
+    <button id="btn-add-favorite" class="btn-xs btn-outline" title="Lisää nykyinen pari suosikkeihin">⭐ + Lisää nykyinen</button>
+  </div>
+
   <!-- Active Indicators Bar -->
   <div id="active-indicators-bar" class="active-indicators-bar">
     <div class="active-bar-label">Aktiiviset indikaattorit:</div>
@@ -679,33 +883,29 @@
 
     <!-- Agent & Controls Side Panel -->
     <div id="agent-panel">
-      <!-- Prompt input section -->
+      <!-- Kysy kuvaajasta (Tekninen tekoälyanalyysi) -->
       <div class="panel-section">
         <div class="panel-header">
-          <span>Indikaattoripyyntö</span>
-          <span style="font-size: 0.7rem; color: #64748b;">Pine Script v5</span>
+          <span>💬 Kysy kuvaajasta</span>
+          <span style="font-size: 0.7rem; color: #60a5fa; font-weight: 600;">Tekninen tekoälyanalyysi</span>
         </div>
         <div class="prompt-box">
           <input
             type="text"
             id="prompt-input"
-            placeholder="Esim. Luo EMA 20 ja 50 risteys osto/myyntisignaaleilla..."
+            placeholder="Mikä on käyrän tilanne? Osto vai myynti? Avaintasot?"
             autocomplete="off"
           />
-          <button id="send-btn" class="btn-primary">Aja</button>
+          <button id="send-btn" class="btn-primary">Kysy</button>
         </div>
 
         <div class="preset-chips">
-          <div class="preset-chip" data-prompt="Luo 20 ja 50 periodin EMA-trendiristeysindikaattori osto- ja myyntinuolilla">⚡ EMA 20/50 Crossover</div>
-          <div class="preset-chip" data-prompt="Luo 14 periodin RSI momentum extreme -indikaattori (30 ja 70 rajat)">📊 RSI Extreme (30/70)</div>
-          <div class="preset-chip" data-prompt="Luo 20 periodin Donchian Breakout Channel -kanavaindikaattori">📈 Breakout Channel 20</div>
-        </div>
-
-        <!-- Quick Ask LLM Row -->
-        <div class="quick-ask-row">
-          <button class="quick-ask-btn" data-question="Mikä on tämän käyrän tilanne nyt? Osto vai myynti?">🎯 Tilanne nyt (Osto/Myynti)</button>
-          <button class="quick-ask-btn" data-question="Mitkä ovat nykyisen hintajakson tärkeimmät tuki- ja vastustasot?">📍 Tuki- ja vastustasot</button>
-          <button class="quick-ask-btn" data-question="Ovatko kaavion indikaattorit ristiriidassa keskenään?">⚖️ Signaalien konfluenssi</button>
+          <div class="preset-chip" data-question="Mikä on tämän käyrän tekninen tilanne nyt? Onko osto vai myynti?">🎯 Osto vai myynti?</div>
+          <div class="preset-chip" data-question="Mitkä ovat nykyisen hintajakson tärkeimmät tuki- ja vastustasot sekä käännekohdat?">📍 Tuki- ja vastustasot</div>
+          <div class="preset-chip" data-question="Ovatko kaavion aktiiviset indikaattorit ja hintatoiminta konfluenssissa vai ristiriidassa?">⚖️ Signaalien konfluenssi</div>
+          <div class="preset-chip" data-question="Mikä on trendin vahvuus ja RSI-momentum (14)?">📈 Trendi & RSI</div>
+          <div class="preset-chip" data-question="Mikä on ATR-volatiliteetti ja suositeltava stop-loss suojausalue?">🛡️ ATR & Stop-Loss</div>
+          <div class="preset-chip" data-question="Onko markkinassa havaittavissa volyymipiikkejä tai poikkeamia keskiarvoon?">📊 Volyymipoikkeamat</div>
         </div>
       </div>
 
@@ -800,23 +1000,91 @@
           <div id="community-scripts-list" class="scripts-grid"></div>
         </div>
 
-        <!-- Tab 3: New indicator editor form -->
+        <!-- Tab 3: New indicator editor & AI Generator -->
         <div id="tab-new-indicator" style="display: none;">
-          <div style="display: flex; flex-direction: column; gap: 12px;">
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Indikaattorin nimi</label>
-              <input type="text" id="new-ind-name" placeholder="Esim. My Super MA" style="width: 100%;" />
+          <div class="sub-tabs-bar">
+            <button class="sub-tab-btn active" id="btn-subtab-ai" data-subtab="subtab-ai-generator">🤖 Luo tekoälyllä (Prompt)</button>
+            <button class="sub-tab-btn" id="btn-subtab-manual" data-subtab="subtab-manual-code">✏️ Kirjoita koodi manuaalisesti</button>
+          </div>
+
+          <!-- Subtab 1: AI Generator -->
+          <div id="subtab-ai-generator">
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div>
+                <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Indikaattoripyyntö tekoälylle (Pine Script v5)</label>
+                <textarea
+                  id="ai-ind-prompt"
+                  rows="3"
+                  placeholder="Esim. Luo 20 ja 50 periodin EMA-trendiristeysindikaattori osto- ja myyntinuolilla sekä ATR-suojaustasoilla..."
+                  style="width: 100%; font-size: 0.85rem;"
+                ></textarea>
+              </div>
+
+              <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Valmiit tekoälymallipohjat:</label>
+                <div class="preset-chips">
+                  <div class="preset-chip ai-prompt-chip" data-prompt="Luo 20 ja 50 periodin EMA-trendiristeysindikaattori osto- ja myyntinuolilla">⚡ EMA 20/50 Crossover</div>
+                  <div class="preset-chip ai-prompt-chip" data-prompt="Luo 14 periodin RSI momentum extreme -indikaattori (30 ja 70 rajat) dynaamisella värityksellä">📊 RSI Extreme (30/70)</div>
+                  <div class="preset-chip ai-prompt-chip" data-prompt="Luo 20 periodin Donchian Breakout Channel -kanavaindikaattori">📈 Breakout Channel 20</div>
+                  <div class="preset-chip ai-prompt-chip" data-prompt="Luo Bollinger Bands (20, 2.0) ja Keltner Channel volatiliteettisqueeze-indikaattori">🌊 Bollinger Squeeze</div>
+                  <div class="preset-chip ai-prompt-chip" data-prompt="Luo Supertrend-indikaattori (periodi 10, kerroin 3.0 ATR) trendisuuntanuolilla">🎯 Supertrend ATR</div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <select id="ai-ind-model" style="font-size: 0.8rem;">
+                    <option value="gemini-3.8-flash-high" selected>Gemini 3.8 Flash (Nopea)</option>
+                    <option value="gemini-3.1-pro-high">Gemini 3.1 Pro (Syvällinen)</option>
+                    <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                  </select>
+                  <select id="ai-ind-mode" style="font-size: 0.8rem;">
+                    <option value="auto" selected>Täysi orkestrointi & validointi</option>
+                    <option value="instant">Välitön generointi (&lt; 500ms)</option>
+                  </select>
+                </div>
+                <button id="btn-run-ai-indicator" class="btn-primary">🚀 Generoi indikaattori</button>
+              </div>
+
+              <div>
+                <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Generoidun koodin esikatselu (Muokattavissa)</label>
+                <textarea
+                  id="ai-ind-result-code"
+                  rows="8"
+                  placeholder="Tekoälyn generoima Pine Script v5 -koodi ilmestyy tähän automaattisesti..."
+                  style="width: 100%; font-family: monospace; font-size: 0.8rem;"
+                ></textarea>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="ai-ind-status" style="font-size: 0.8rem; color: #94a3b8;"></span>
+                <div style="display: flex; gap: 8px;">
+                  <button id="btn-ai-apply-ind" class="btn-secondary" style="display: none;">📊 Lisää kaavioon</button>
+                  <button id="btn-ai-save-ind" class="btn-primary" style="display: none;">💾 Tallenna kirjastoon</button>
+                </div>
+              </div>
             </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Kuvaus ja säännöt</label>
-              <input type="text" id="new-ind-desc" placeholder="Esim. 20 ja 50 EMA -suodatin" style="width: 100%;" />
-            </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Pine Script v5 -koodi</label>
-              <textarea id="new-ind-code" rows="10" placeholder="//@version=5&#10;indicator('My Indicator', overlay=true)&#10;..." style="width: 100%; font-family: monospace; font-size: 0.8rem;"></textarea>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 10px;">
-              <button id="btn-save-new-ind" class="btn-primary">Tallenna kirjastoon</button>
+          </div>
+
+          <!-- Subtab 2: Manual Code Entry -->
+          <div id="subtab-manual-code" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div>
+                <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Indikaattorin nimi</label>
+                <input type="text" id="new-ind-name" placeholder="Esim. My Custom Strategy" style="width: 100%;" />
+              </div>
+              <div>
+                <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Kuvaus ja säännöt</label>
+                <input type="text" id="new-ind-desc" placeholder="Esim. 20 ja 50 EMA -suodatin" style="width: 100%;" />
+              </div>
+              <div>
+                <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Pine Script v5 -koodi</label>
+                <textarea id="new-ind-code" rows="10" placeholder="//@version=5&#10;indicator('My Indicator', overlay=true)&#10;..." style="width: 100%; font-family: monospace; font-size: 0.8rem;"></textarea>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button id="btn-test-new-ind" class="btn-secondary">📊 Testaa kaaviolla</button>
+                <button id="btn-save-new-ind" class="btn-primary">💾 Tallenna kirjastoon</button>
+              </div>
             </div>
           </div>
         </div>
@@ -863,6 +1131,10 @@
               <input type="number" id="hist-start-month" min="1" max="12" value="1" style="width: 100%;" />
             </div>
             <div>
+              <label style="font-size: 0.75rem; color: var(--text-muted);">Loppuvuosi</label>
+              <input type="number" id="hist-end-year" value="2024" style="width: 100%;" />
+            </div>
+            <div>
               <label style="font-size: 0.75rem; color: var(--text-muted);">Loppukuukausi</label>
               <input type="number" id="hist-end-month" min="1" max="12" value="3" style="width: 100%;" />
             </div>
@@ -874,10 +1146,10 @@
           </div>
         </div>
 
-        <!-- Downloaded archives table -->
+        <!-- Downloaded archives table with open in chart action -->
         <div style="margin-bottom: 20px;">
           <h4 style="font-size: 0.9rem; margin-bottom: 10px; color: var(--text-main);">Paikallisesti ladatut arkistot (Välimuisti)</h4>
-          <div id="downloaded-archives-list" style="font-size: 0.8rem; color: var(--text-muted); max-height: 180px; overflow-y: auto;">
+          <div id="downloaded-archives-list" style="font-size: 0.8rem; color: var(--text-muted); max-height: 200px; overflow-y: auto;">
             Ei ladattuja arkistoja vielä.
           </div>
         </div>
@@ -890,6 +1162,36 @@
             <li><strong>OKX Historical API:</strong> <code>https://www.okx.com/api/v5/market/history-candles</code> (Vuosien historia REST-pyynnöillä ilman avainta).</li>
             <li><strong>Hyperliquid L1 DEX:</strong> Sisäänrakennettu suora tuki (jopa 5000 baaria reaaliajassa).</li>
           </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Markkinaparihaku ja suosikit (Symbol Search Modal) -->
+  <div id="symbol-modal" class="modal-backdrop">
+    <div class="modal-window" style="max-width: 620px;">
+      <div class="modal-header">
+        <div class="modal-title">🔍 Valitse markkinapari</div>
+        <button class="modal-close-btn" data-close="symbol-modal">&times;</button>
+      </div>
+      <div style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); background-color: #0f131f;">
+        <input
+          type="text"
+          id="symbol-search-input"
+          placeholder="Etsi tokenia tai paria (esim. BTC, ETH, SOL, SUI, DOGE, PEPE)..."
+          style="width: 100%; font-size: 0.95rem; padding: 8px 12px;"
+          autocomplete="off"
+        />
+        <div style="display: flex; gap: 8px; margin-top: 10px; overflow-x: auto;">
+          <button class="btn-xs btn-outline symbol-filter-btn active" data-filter="all">Kaikki</button>
+          <button class="btn-xs btn-outline symbol-filter-btn" data-filter="favorites">⭐ Suosikit (<span id="fav-count-badge">0</span>)</button>
+          <button class="btn-xs btn-outline symbol-filter-btn" data-filter="hyperliquid">Hyperliquid (234)</button>
+          <button class="btn-xs btn-outline symbol-filter-btn" data-filter="binance">Binance Spot (503)</button>
+        </div>
+      </div>
+      <div class="modal-body" style="padding: 10px 16px; max-height: 420px; overflow-y: auto;">
+        <div id="symbol-grid-list" class="symbol-grid-list">
+          <div style="color: #64748b; font-style: italic;">Ladataan pörssipareja...</div>
         </div>
       </div>
     </div>

@@ -17,12 +17,14 @@ from aiohttp import web
 
 # Ensure backend package can be imported
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from data_fetcher import get_candles, normalize_symbol, normalize_interval
+from data_fetcher import get_candles, normalize_symbol, normalize_interval, get_available_symbols
 from engine import calculate_market_context, run_quantitative_backtest_logic
 from server import validate_pinets_syntax
 from historical_downloader import (
     download_binance_range,
     list_downloaded_historical_archives,
+    load_combined_historical_df,
+    load_historical_file_df,
     FREE_EXCHANGE_RESOURCES,
 )
 
@@ -630,24 +632,56 @@ class BridgeServer:
         symbol = request.query.get("symbol", "BTC")
         timeframe = request.query.get("timeframe", "1h")
         bars = int(request.query.get("bars", 1000))
-        source = request.query.get("source", "hyperliquid")
+        source = request.query.get("source", "hyperliquid").lower()
+        file_param = request.query.get("file", "")
 
         try:
-            df = get_candles(symbol=symbol, timeframe=timeframe, bars=bars, source=source)
+            if source == "archive":
+                if file_param:
+                    df = load_historical_file_df(file_param)
+                else:
+                    df = load_combined_historical_df(symbol, timeframe)
+            else:
+                df = get_candles(symbol=symbol, timeframe=timeframe, bars=bars, source=source)
+
             records = []
-            for _, row in df.iterrows():
-                records.append({
-                    "openTime": int(row["time_ms"]),
-                    "open": float(row["open"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "close": float(row["close"]),
-                    "volume": float(row["volume"]),
-                })
-            return web.json_response({"symbol": symbol, "timeframe": timeframe, "candles": records})
+            if not df.empty and "time_ms" in df.columns:
+                for _, row in df.iterrows():
+                    records.append({
+                        "openTime": int(row["time_ms"]),
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": float(row.get("volume", 0.0)),
+                    })
+            return web.json_response({"symbol": symbol, "timeframe": timeframe, "source": source, "candles": records})
         except Exception as e:
             logger.error("Failed to fetch candles via API: %s", e)
             return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_get_symbols(self, request: web.Request) -> web.Response:
+        """HTTP GET endpoint for exchange trading pairs (Hyperliquid & Binance)."""
+        source = request.query.get("source", "all").lower()
+        refresh = request.query.get("refresh", "false").lower() == "true"
+        try:
+            if source in ("hyperliquid", "binance"):
+                symbols = get_available_symbols(source=source, force_refresh=refresh)
+            else:
+                symbols_hl = get_available_symbols(source="hyperliquid", force_refresh=refresh)
+                symbols_bi = get_available_symbols(source="binance", force_refresh=refresh)
+                symbols = symbols_hl + symbols_bi
+
+            return web.json_response({
+                "status": "ok",
+                "source": source,
+                "count": len(symbols),
+                "symbols": symbols,
+            })
+        except Exception as e:
+            logger.error("Failed to get symbols: %s", e)
+            return web.json_response({"error": str(e)}, status=500)
+
 
     # Indicator persistence endpoints
     async def handle_get_indicators(self, request: web.Request) -> web.Response:
@@ -756,6 +790,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/push_indicator", server.handle_push_indicator)
     app.router.add_post("/api/push_metrics", server.handle_push_metrics)
     app.router.add_get("/api/candles", server.handle_get_candles)
+    app.router.add_get("/api/symbols", server.handle_get_symbols)
     app.router.add_get("/api/indicators", server.handle_get_indicators)
     app.router.add_post("/api/indicators", server.handle_save_indicator)
     app.router.add_delete("/api/indicators/{id}", server.handle_delete_indicator)

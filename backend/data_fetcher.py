@@ -67,6 +67,113 @@ def _get_cache_path(source: str, coin: str, interval: str) -> str:
     return os.path.join(CACHE_DIR, f"{source.lower()}_{coin}_{interval}.json")
 
 
+DEFAULT_TOP_SYMBOLS = {
+    "hyperliquid": [
+        {"symbol": "BTC", "pair": "BTC/USD", "base": "BTC", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "ETH", "pair": "ETH/USD", "base": "ETH", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "SOL", "pair": "SOL/USD", "base": "SOL", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "DOGE", "pair": "DOGE/USD", "base": "DOGE", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "SUI", "pair": "SUI/USD", "base": "SUI", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "AVAX", "pair": "AVAX/USD", "base": "AVAX", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "LINK", "pair": "LINK/USD", "base": "LINK", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "ARB", "pair": "ARB/USD", "base": "ARB", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "OP", "pair": "OP/USD", "base": "OP", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "NEAR", "pair": "NEAR/USD", "base": "NEAR", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "PEPE", "pair": "PEPE/USD", "base": "PEPE", "quote": "USD", "source": "hyperliquid"},
+        {"symbol": "WIF", "pair": "WIF/USD", "base": "WIF", "quote": "USD", "source": "hyperliquid"},
+    ],
+    "binance": [
+        {"symbol": "BTCUSDT", "pair": "BTC/USDT", "base": "BTC", "quote": "USDT", "source": "binance"},
+        {"symbol": "ETHUSDT", "pair": "ETH/USDT", "base": "ETH", "quote": "USDT", "source": "binance"},
+        {"symbol": "SOLUSDT", "pair": "SOL/USDT", "base": "SOL", "quote": "USDT", "source": "binance"},
+        {"symbol": "BNBUSDT", "pair": "BNB/USDT", "base": "BNB", "quote": "USDT", "source": "binance"},
+        {"symbol": "XRPUSDT", "pair": "XRP/USDT", "base": "XRP", "quote": "USDT", "source": "binance"},
+        {"symbol": "DOGEUSDT", "pair": "DOGE/USDT", "base": "DOGE", "quote": "USDT", "source": "binance"},
+        {"symbol": "ADAUSDT", "pair": "ADA/USDT", "base": "ADA", "quote": "USDT", "source": "binance"},
+        {"symbol": "AVAXUSDT", "pair": "AVAX/USDT", "base": "AVAX", "quote": "USDT", "source": "binance"},
+        {"symbol": "SUIUSDT", "pair": "SUI/USDT", "base": "SUI", "quote": "USDT", "source": "binance"},
+        {"symbol": "LINKUSDT", "pair": "LINK/USDT", "base": "LINK", "quote": "USDT", "source": "binance"},
+        {"symbol": "NEARUSDT", "pair": "NEAR/USDT", "base": "NEAR", "quote": "USDT", "source": "binance"},
+        {"symbol": "PEPEUSDT", "pair": "PEPE/USDT", "base": "PEPE", "quote": "USDT", "source": "binance"},
+    ],
+}
+
+
+def get_available_symbols(source: str = "hyperliquid", force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """Retrieve full list of active trading pairs for given source (Hyperliquid or Binance) with disk caching."""
+    src = source.lower().strip()
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = os.path.join(CACHE_DIR, f"symbols_{src}.json")
+
+    if not force_refresh and os.path.exists(cache_file):
+        try:
+            mtime = os.path.getmtime(cache_file)
+            if (time.time() - mtime) < 86400:  # 24h cache
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cached_data = json.load(f)
+                    if isinstance(cached_data, list) and cached_data:
+                        return cached_data
+        except Exception as e:
+            logger.warning("Error reading symbols cache %s: %s", cache_file, e)
+
+    results: List[Dict[str, Any]] = []
+    try:
+        if src == "hyperliquid":
+            resp = requests.post(HYPERLIQUID_INFO_URL, json={"type": "meta"}, timeout=10)
+            if resp.status_code == 200:
+                meta = resp.json()
+                for c in meta.get("universe", []):
+                    name = c.get("name")
+                    if name:
+                        results.append({
+                            "symbol": name,
+                            "pair": f"{name}/USD",
+                            "base": name,
+                            "quote": "USD",
+                            "source": "hyperliquid",
+                            "maxLeverage": c.get("maxLeverage", 50),
+                        })
+        elif src == "binance":
+            resp = requests.get("https://api.binance.com/api/v3/exchangeInfo?permissions=SPOT", timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                for s in data.get("symbols", []):
+                    if s.get("quoteAsset") == "USDT" and s.get("status") == "TRADING":
+                        results.append({
+                            "symbol": s.get("symbol"),
+                            "pair": f"{s.get('baseAsset')}/USDT",
+                            "base": s.get("baseAsset"),
+                            "quote": "USDT",
+                            "source": "binance",
+                        })
+
+        if results:
+            # Sort: popular coins first, then alphabetical
+            prio = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "SUI", "AVAX", "LINK", "ADA"]
+            def sort_key(item):
+                base = item.get("base", "")
+                return (0, prio.index(base)) if base in prio else (1, base)
+            results.sort(key=sort_key)
+
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=2)
+            logger.info("Saved %d symbols to cache %s", len(results), cache_file)
+            return results
+
+    except Exception as e:
+        logger.error("Failed to fetch fresh symbols for %s: %s", src, e)
+
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    return DEFAULT_TOP_SYMBOLS.get(src, DEFAULT_TOP_SYMBOLS["hyperliquid"])
+
+
+
 def fetch_candles_hyperliquid(coin: str, interval: str, start_time: int = 0) -> List[Dict[str, Any]]:
     """Fetch candle snapshot from Hyperliquid REST API."""
     payload = {

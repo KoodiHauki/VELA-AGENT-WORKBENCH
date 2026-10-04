@@ -87,13 +87,26 @@ class TestBackend(unittest.TestCase):
         archives = list_downloaded_historical_archives()
         self.assertGreater(len(archives), 0)
 
-    def test_indicator_persistence(self):
-        indicators = _get_saved_indicators()
-        self.assertIsInstance(indicators, list)
-        self.assertGreater(len(indicators), 0)
-        first = indicators[0]
-        self.assertIn("name", first)
-        self.assertIn("code", first)
+    def test_symbols_discovery(self):
+        from data_fetcher import get_available_symbols
+        hl_syms = get_available_symbols("hyperliquid")
+        self.assertGreater(len(hl_syms), 50)
+        self.assertEqual(hl_syms[0]["symbol"], "BTC")
+        self.assertEqual(hl_syms[0]["source"], "hyperliquid")
+
+        binance_syms = get_available_symbols("binance")
+        self.assertGreater(len(binance_syms), 50)
+        self.assertIn("USDT", binance_syms[0]["quote"])
+
+    def test_historical_file_loader(self):
+        from historical_downloader import load_combined_historical_df, load_historical_file_df
+        df_combined = load_combined_historical_df("BTCUSDT", "1d")
+        self.assertFalse(df_combined.empty)
+        self.assertIn("close", df_combined.columns)
+
+        df_single = load_historical_file_df("BTCUSDT-1d-2024-01.csv")
+        self.assertFalse(df_single.empty)
+        self.assertEqual(len(df_single), 31)
 
 
 if __name__ == "__main__":

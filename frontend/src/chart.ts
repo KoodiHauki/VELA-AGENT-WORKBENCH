@@ -25,6 +25,35 @@ export interface ChartContextSnapshot {
   activeIndicators: { id: string; name: string; visible: boolean; code: string }[];
 }
 
+export class ArchiveProvider {
+  async getBars(ticker: string, timeframe: string, _range?: any): Promise<any[]> {
+    try {
+      const host = window.location.hostname || '127.0.0.1';
+      const port = 8765;
+      let url = `http://${host}:${port}/api/candles?source=archive&timeframe=${encodeURIComponent(timeframe)}`;
+      if (ticker.endsWith('.csv')) {
+        url += `&file=${encodeURIComponent(ticker)}`;
+      } else {
+        url += `&symbol=${encodeURIComponent(ticker)}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.candles || []).map((c: any) => ({
+        time: Number(c.openTime || c.time),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: Number(c.volume || 0),
+      }));
+    } catch (e) {
+      console.warn('[ArchiveProvider] Failed to fetch candles:', e);
+      return [];
+    }
+  }
+}
+
 export class VelaChartManager {
   private container: HTMLElement;
   public chart: Vela | null = null;
@@ -45,17 +74,23 @@ export class VelaChartManager {
   }
 
   private cleanSymbol(s: string, source: string = 'hyperliquid'): string {
-    let clean = s.toUpperCase().trim();
+    let clean = s.trim();
     if (clean.includes(':')) {
       clean = clean.split(':', 2)[1];
     }
-    if (clean.endsWith('USDT') && clean.length > 4) clean = clean.slice(0, -4);
-    if (clean.endsWith('USD') && clean.length > 3) clean = clean.slice(0, -3);
-
-    if (source.toLowerCase() === 'binance') {
-      return `BINANCE:${clean}USDT`;
+    const src = source.toLowerCase();
+    if (src === 'archive') {
+      return `ARCHIVE:${clean}`;
     }
-    return `HYPERLIQUID:${clean}`;
+    const upper = clean.toUpperCase();
+    let symbolOnly = upper;
+    if (symbolOnly.endsWith('USDT') && symbolOnly.length > 4) symbolOnly = symbolOnly.slice(0, -4);
+    if (symbolOnly.endsWith('USD') && symbolOnly.length > 3) symbolOnly = symbolOnly.slice(0, -3);
+
+    if (src === 'binance') {
+      return `BINANCE:${symbolOnly}USDT`;
+    }
+    return `HYPERLIQUID:${symbolOnly}`;
   }
 
   private formatTimeframe(tf: string): string {
@@ -87,10 +122,11 @@ export class VelaChartManager {
     this.currentSource = source.toLowerCase();
 
     try {
-      // 1. Create MultiProviderFeed with both Hyperliquid and Binance providers
+      // 1. Create MultiProviderFeed with Hyperliquid, Binance, and Archive providers
       const feed = new MultiProviderFeed();
       feed.registerProvider('hyperliquid', new HyperliquidProvider());
       feed.registerProvider('binance', new BinanceProvider());
+      feed.registerProvider('archive', new ArchiveProvider() as any);
 
       // 2. Initialize Vela instance with feed in deps
       this.chart = new Vela(
@@ -106,6 +142,7 @@ export class VelaChartManager {
           dataFeed: feed,
         }
       );
+
 
       // 3. Register PineTS execution engine (worker preferred, fallback to sync engine)
       try {
@@ -148,6 +185,11 @@ export class VelaChartManager {
       }
     }
   }
+
+  public async loadArchiveData(filenameOrSymbol: string, timeframe: string = '1h') {
+    await this.setMarket(filenameOrSymbol, timeframe, 'archive');
+  }
+
 
   private notifyIndicatorsChanged() {
     if (this.onActiveIndicatorsChange) {

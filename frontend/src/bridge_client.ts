@@ -27,6 +27,16 @@ export interface SavedIndicator {
   code: string;
 }
 
+export interface TradingSymbol {
+  symbol: string;
+  pair: string;
+  base: string;
+  quote: string;
+  source: 'hyperliquid' | 'binance';
+  maxLeverage?: number;
+}
+
+
 export type LogListener = (message: string) => void;
 export type MetricsListener = (metrics: BacktestMetrics) => void;
 export type IndicatorListener = (name: string, code: string) => void;
@@ -239,6 +249,20 @@ export class BridgeClient {
       return false;
     }
   }
+
+  public async getSymbols(source: string = 'all', refresh: boolean = false): Promise<TradingSymbol[]> {
+    try {
+      const res = await fetch(`${this.getHttpBaseUrl()}/api/symbols?source=${source}&refresh=${refresh}`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.symbols || [];
+      }
+    } catch (e) {
+      console.warn('[BridgeClient] Failed to fetch symbols:', e);
+    }
+    return [];
+  }
+
 
   public async getHistoricalArchives(): Promise<{ archives: any[]; free_resources: any }> {
     try {
