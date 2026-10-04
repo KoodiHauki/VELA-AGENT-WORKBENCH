@@ -397,82 +397,152 @@ class BridgeServer:
         active_indicators: Optional[List[Dict[str, Any]]] = None,
     ):
         """Execute on-demand deterministic quantitative backtest for the active chart."""
-        symbol = normalize_symbol(symbol)
-        timeframe = normalize_interval(timeframe)
-        source = source.lower()
-        active_indicators = active_indicators or []
-        rules = rules or {}
+        try:
+            symbol = normalize_symbol(symbol)
+            timeframe = normalize_interval(timeframe)
+            source = source.lower()
+            active_indicators = active_indicators or []
+            rules = rules or {}
 
-        # Infer strategy type if not explicitly supplied
-        ind_names = [i.get("name", "") for i in active_indicators if i.get("visible", True)]
-        combined_text = " ".join(ind_names).lower()
+            # Analyze active indicators by name and code
+            active_names = [i.get("name", "") for i in active_indicators if i.get("visible", True)]
+            active_codes = [i.get("code", "") for i in active_indicators if i.get("visible", True)]
+            combined_text = (" ".join(active_names) + " " + " ".join(active_codes)).lower()
 
-        if not rules.get("type"):
-            if "rsi" in combined_text:
-                rules = {"type": "rsi", "rsi_period": 14, "oversold": 30, "overbought": 70}
-                strat_name = "RSI Momentum Extreme (14, 30/70)"
-            elif "breakout" in combined_text or "donchian" in combined_text:
-                rules = {"type": "breakout", "lookback": 20}
-                strat_name = "Donchian Breakout Channel (20)"
-            elif "supertrend" in combined_text:
-                rules = {"type": "ma_crossover", "fast_period": 10, "slow_period": 30, "ma_mode": "ema"}
-                strat_name = "Supertrend / Trend-Following (10/30)"
+            # Clean comments and compiler directives like //@version=5 so 'version' doesn't match 'rsi'
+            clean_text = re.sub(r'//@[^\n]*', ' ', combined_text)
+            clean_text = re.sub(r'//[^\n]*', ' ', clean_text)
+            clean_text = re.sub(r'/\*[\s\S]*?\*/', ' ', clean_text)
+
+            has_explicit_signals = any(
+                s in clean_text for s in (
+                    "plotshape", "crossover", "crossunder", "bull_cross", "bear_cross",
+                    "strategy.entry", "buy_signal", "sell_signal", "shape.triangle"
+                )
+            )
+
+            is_rsi = bool(re.search(r'\brsi\b|ta\.rsi', clean_text))
+            is_breakout = bool(re.search(r'\b(breakout|donchian|keltner|kc)\b', clean_text))
+            is_supertrend = bool(re.search(r'\bsupertrend\b', clean_text))
+            is_crossover = bool(re.search(r'\b(crossover|crossunder|risteys|risteytys)\b|ta\.(crossover|crossunder)', clean_text))
+            is_ma = bool(re.search(r'\b(sma|ema|moving|keskiarvo|ma)\b|ta\.(sma|ema)', clean_text))
+
+            note_str = ""
+
+            if not rules.get("type"):
+                if is_rsi:
+                    rules = {"type": "rsi", "rsi_period": 14, "oversold": 30, "overbought": 70}
+                    strat_name = "RSI Momentum Extreme (30/70 -rajat)"
+                    if not has_explicit_signals:
+                        note_str = "ℹ️ *Indikaattorissa ei ole omia nuolimerkkejä. Backtest simuloitiin äärialueiden (30/70) kääntymissäännöillä.*"
+                elif is_breakout:
+                    rules = {"type": "breakout", "lookback": 20}
+                    strat_name = "Donchian / Keltner Breakout (20)"
+                    if not has_explicit_signals:
+                        note_str = "ℹ️ *Indikaattorissa ei ole omia nuolimerkkejä. Backtest simuloitiin 20 periodin kanavamurtomallilla.*"
+                elif is_supertrend:
+                    rules = {"type": "ma_crossover", "fast_period": 10, "slow_period": 30, "ma_mode": "ema"}
+                    strat_name = "Supertrend Trend-Following (10/30)"
+                elif is_ma:
+                    if is_crossover or "slow" in clean_text or "fast" in clean_text:
+                        rules = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
+                        strat_name = "EMA 20/50 Trend Crossover"
+                    else:
+                        rules = {"type": "price_cross_ma", "period": 20, "ma_mode": "ema"}
+                        strat_name = "Hinnan ja keskiarvon risteys (Price vs MA 20)"
+                        if not has_explicit_signals:
+                            note_str = "ℹ️ *Indikaattorissa ei ole omia osto/myyntimerkkejä. Backtest simuloitiin hinnan ja keskiarvon risteyksillä (osto yläpuolelle, myynti alapuolelle).* "
+                elif active_indicators:
+                    # Indicator exists, but is a pure visual/level indicator without signals
+                    rules = {"type": "price_cross_ma", "period": 20, "ma_mode": "ema"}
+                    strat_name = f"Trendimalli: {active_names[0] if active_names else 'Kaavioindikaattori'}"
+                    note_str = "ℹ️ *Valitussa indikaattorissa ei ole osto- ja myyntimerkkejä. Backtest simuloitiin 20 periodin trendimallilla.*"
+                else:
+                    rules = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
+                    strat_name = "EMA 20/50 Trend Crossover (Benchmark)"
+                    note_str = "ℹ️ *Kaaviolla ei ole aktiivisia indikaattoreita. Backtest suoritettiin markkinan 20/50 EMA -vertailumallilla.*"
             else:
-                rules = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
-                strat_name = "EMA 20/50 Trend Crossover"
-        else:
-            strat_name = rules.get("type", "Mukautettu strategia").upper()
+                strat_name = rules.get("type", "Mukautettu strategia").upper()
 
-        await self.send_to(ws, {
-            "type": "log",
-            "message": f"[Backtest] Käynnistetään kvantitatiivinen backtest: {symbol} ({timeframe}, {source.upper()}) | Strategia: {strat_name}...",
-        })
-
-        df = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
-        if df.empty or len(df) < 30:
             await self.send_to(ws, {
                 "type": "log",
-                "message": f"[Backtest] Varoitus: Ei tarpeeksi kynttilähistoriaa ({len(df)} kpl) laskentaan.",
+                "message": f"[Backtest] Käynnistetään kvantitatiivinen backtest: {symbol} ({timeframe}, {source.upper()}) | Strategia: {strat_name}...",
             })
+
+            df = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
+            if df.empty or len(df) < 30:
+                await self.send_to(ws, {
+                    "type": "log",
+                    "message": f"[Backtest] Varoitus: Ei tarpeeksi kynttilähistoriaa ({len(df)} kpl) laskentaan.",
+                })
+                await self.send_to(ws, {
+                    "type": "summary",
+                    "text": "⚠️ **Ei tarpeeksi kynttilähistoriaa**: Kohteelle ei löytynyt vähintään 30 kynttilää backtestaukseen.",
+                })
+                return
+
+            metrics = run_quantitative_backtest_logic(df, rules)
+            metrics["symbol"] = symbol
+            metrics["timeframe"] = timeframe
+            metrics["source"] = source
+            metrics["strategy"] = strat_name
+
+            await self.send_to(ws, {"type": "metrics", "data": metrics})
+
+            win_rate = metrics.get("win_rate", 0.0)
+            profit_factor = metrics.get("profit_factor", 0.0)
+            trades_count = metrics.get("trades_count", 0)
+            winning_trades = metrics.get("winning_trades", 0)
+            losing_trades = metrics.get("losing_trades", 0)
+            avg_ret = metrics.get("avg_return_pct", 0.0)
+            tot_ret = metrics.get("total_return_pct", 0.0)
+            max_dd = metrics.get("max_drawdown_pct", 0.0)
+
+            if trades_count == 0:
+                summary_md = (
+                    f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
+                    f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
+                    f"- **Kauppojen määrä:** **0 kauppaa**\n"
+                    f"- **Voittoprosentti:** 0.0%\n\n"
+                    f"⚠️ **Miksi kauppoja ei syntynyt (0 kauppaa)?**\n"
+                    f"Valittu indikaattori ei tuottanut yhtään täyttynyttä osto- ja myyntisignaalia 500 kynttilän jaksolla.\n\n"
+                    f"{note_str}\n\n"
+                    f"💡 **Ratkaisu:** Backtest vaatii selkeät laukaisuehdot (*milloin ostetaan*, *milloin myydään*). "
+                    f"Voit valita valmiin signaaleja sisältävän indikaattorin kirjastosta (esim. **EMA 20/50 Crossover** tai **RSI Extreme**)."
+                )
+            else:
+                note_part = f"\n\n{note_str}" if note_str else ""
+                summary_md = (
+                    f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
+                    f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
+                    f"- **Historiadata:** 500 kynttilää\n"
+                    f"- **Kauppojen määrä:** **{trades_count}** kauppaa\n"
+                    f"- **Voittoprosentti (Win Rate):** **{win_rate:.1f}%** ({winning_trades} voittoa / {losing_trades} tappiota)\n"
+                    f"- **Profit Factor:** **{profit_factor:.2f}**\n"
+                    f"- **Suurin pudotus (Max Drawdown):** **{max_dd:.2f}%**\n"
+                    f"- **Keskimääräinen tuotto per kauppa:** **{avg_ret:+.2f}%**\n"
+                    f"- **Kokonaistuotto jakson aikana:** **{tot_ret:+.2f}%**\n\n"
+                    f"**Objektiivinen arvio:** {metrics.get('summary', '')}"
+                    f"{note_part}"
+                )
+
+            await self.send_to(ws, {"type": "summary", "text": summary_md})
+            await self.send_to(ws, {
+                "type": "log",
+                "message": f"[Backtest Valmis] Kaupat: {trades_count} | Voittoprosentti: {win_rate:.1f}% | Profit Factor: {profit_factor:.2f}",
+            })
+        except Exception as e:
+            logger.error("Error in handle_direct_backtest: %s", e)
+            await self.send_to(ws, {
+                "type": "log",
+                "message": f"[Backtest Virhe] Backtestin suoritus epäonnistui: {e}",
+            })
+            await self.send_to(ws, {
+                "type": "summary",
+                "text": f"⚠️ **Virhe backtestissä:** {e}",
+            })
+        finally:
             await self.send_to(ws, {"type": "done"})
-            return
-
-        metrics = run_quantitative_backtest_logic(df, rules)
-        metrics["symbol"] = symbol
-        metrics["timeframe"] = timeframe
-        metrics["source"] = source
-        metrics["strategy"] = strat_name
-
-        await self.send_to(ws, {"type": "metrics", "data": metrics})
-
-        win_rate = metrics.get("win_rate", 0.0)
-        profit_factor = metrics.get("profit_factor", 0.0)
-        trades_count = metrics.get("trades_count", 0)
-        winning_trades = metrics.get("winning_trades", 0)
-        losing_trades = metrics.get("losing_trades", 0)
-        avg_ret = metrics.get("avg_return_pct", 0.0)
-        tot_ret = metrics.get("total_return_pct", 0.0)
-        max_dd = metrics.get("max_drawdown_pct", 0.0)
-
-        summary_md = (
-            f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
-            f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
-            f"- **Historiadata:** 500 kynttilää\n"
-            f"- **Kauppojen määrä:** **{trades_count}** kauppaa\n"
-            f"- **Voittoprosentti (Win Rate):** **{win_rate:.1f}%** ({winning_trades} voittoa / {losing_trades} tappiota)\n"
-            f"- **Profit Factor:** **{profit_factor:.2f}**\n"
-            f"- **Suurin pudotus (Max Drawdown):** **{max_dd:.2f}%**\n"
-            f"- **Keskimääräinen tuotto per kauppa:** **{avg_ret:+.2f}%**\n"
-            f"- **Kokonaistuotto jakson aikana:** **{tot_ret:+.2f}%**\n\n"
-            f"**Objektiivinen arvio:** {metrics.get('summary', '')}"
-        )
-
-        await self.send_to(ws, {"type": "summary", "text": summary_md})
-        await self.send_to(ws, {
-            "type": "log",
-            "message": f"[Backtest Valmis] Kaupat: {trades_count} | Voittoprosentti: {win_rate:.1f}% | Profit Factor: {profit_factor:.2f}",
-        })
-        await self.send_to(ws, {"type": "done"})
 
     async def run_fallback_agent(
         self,
@@ -483,112 +553,117 @@ class BridgeServer:
         source: str = "hyperliquid",
     ):
         """Autonomous instant quant engine flow (< 500ms)."""
-        await self.send_to(ws, {"type": "log", "message": f"[Pika-analyysi] Noudetaan tilastollinen konteksti: {symbol} ({timeframe}, {source.upper()})..."})
+        try:
+            await self.send_to(ws, {"type": "log", "message": f"[Pika-analyysi] Noudetaan tilastollinen konteksti: {symbol} ({timeframe}, {source.upper()})..."})
 
-        # 1. Context
-        df = get_candles(symbol=symbol, timeframe=timeframe, bars=100, source=source)
-        ctx = calculate_market_context(df)
-        await self.send_to(ws, {"type": "log", "message": f"[Konteksti] {ctx.get('summary', '')}"})
+            # 1. Context
+            df = get_candles(symbol=symbol, timeframe=timeframe, bars=100, source=source)
+            ctx = calculate_market_context(df)
+            await self.send_to(ws, {"type": "log", "message": f"[Konteksti] {ctx.get('summary', '')}"})
 
-        # 2. Indicator synthesis based on prompt keywords
-        prompt_lower = user_prompt.lower()
-        if "supertrend" in prompt_lower:
-            ind_name = "SuperTrend"
-            strategy_rule = {"type": "ma_crossover", "fast_period": 10, "slow_period": 30}
-            pine_code = (
-                "//@version=5\n"
-                "indicator('SuperTrend', overlay=true)\n"
-                "atr_len = input.int(10, 'ATR Length')\n"
-                "factor = input.float(3.0, 'Factor')\n"
-                "[supertrend, direction] = ta.supertrend(factor, atr_len)\n"
-                "up = plot(direction < 0 ? supertrend : na, 'Up', color=color.green, style=plot.style_linebr, linewidth=2)\n"
-                "dn = plot(direction < 0 ? na : supertrend, 'Down', color=color.red, style=plot.style_linebr, linewidth=2)\n"
+            # 2. Indicator synthesis based on prompt keywords
+            prompt_lower = user_prompt.lower()
+            if "supertrend" in prompt_lower:
+                ind_name = "SuperTrend"
+                strategy_rule = {"type": "ma_crossover", "fast_period": 10, "slow_period": 30}
+                pine_code = (
+                    "//@version=5\n"
+                    "indicator('SuperTrend', overlay=true)\n"
+                    "atr_len = input.int(10, 'ATR Length')\n"
+                    "factor = input.float(3.0, 'Factor')\n"
+                    "[supertrend, direction] = ta.supertrend(factor, atr_len)\n"
+                    "up = plot(direction < 0 ? supertrend : na, 'Up', color=color.green, style=plot.style_linebr, linewidth=2)\n"
+                    "dn = plot(direction < 0 ? na : supertrend, 'Down', color=color.red, style=plot.style_linebr, linewidth=2)\n"
+                )
+            elif "rsi" in prompt_lower:
+                ind_name = "RSI Momentum Extreme"
+                strategy_rule = {"type": "rsi", "rsi_period": 14, "oversold": 30, "overbought": 70}
+                pine_code = (
+                    "//@version=5\n"
+                    f"indicator('{ind_name}', overlay=false)\n"
+                    "rsi_len = input.int(14, 'RSI Length')\n"
+                    "rsi_val = ta.rsi(close, rsi_len)\n"
+                    "plot(rsi_val, 'RSI', color=color.purple, linewidth=2)\n"
+                    "hline(70, 'Overbought', color=color.red, linestyle=hline.style_dashed)\n"
+                    "hline(30, 'Oversold', color=color.green, linestyle=hline.style_dashed)\n"
+                    "hline(50, 'Midline', color=color.gray, linestyle=hline.style_dotted)\n"
+                )
+            elif "breakout" in prompt_lower or "donchian" in prompt_lower or "kanava" in prompt_lower:
+                ind_name = "Breakout Channel 20"
+                strategy_rule = {"type": "breakout", "lookback": 20}
+                pine_code = (
+                    "//@version=5\n"
+                    f"indicator('{ind_name}', overlay=true)\n"
+                    "len = input.int(20, 'Channel Length')\n"
+                    "upper = ta.highest(high, len)\n"
+                    "lower = ta.lowest(low, len)\n"
+                    "basis = (upper + lower) / 2\n"
+                    "plot(upper, 'Upper Band', color=color.teal, linewidth=2)\n"
+                    "plot(lower, 'Lower Band', color=color.maroon, linewidth=2)\n"
+                    "plot(basis, 'Midline', color=color.gray, style=plot.style_line)\n"
+                )
+            else:
+                ind_name = "EMA 20/50 Dynamic Trend"
+                strategy_rule = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
+                pine_code = (
+                    "//@version=5\n"
+                    f"indicator('{ind_name}', overlay=true)\n"
+                    "fast_len = input.int(20, 'Fast EMA')\n"
+                    "slow_len = input.int(50, 'Slow EMA')\n"
+                    "fast_ema = ta.ema(close, fast_len)\n"
+                    "slow_ema = ta.ema(close, slow_len)\n"
+                    "bull_cross = ta.crossover(fast_ema, slow_ema)\n"
+                    "bear_cross = ta.crossunder(fast_ema, slow_ema)\n"
+                    "plot(fast_ema, 'Fast EMA', color=color.new(#00e676, 0), linewidth=2)\n"
+                    "plot(slow_ema, 'Slow EMA', color=color.new(#ff1744, 0), linewidth=2)\n"
+                    "plotshape(bull_cross, 'Buy Signal', location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)\n"
+                    "plotshape(bear_cross, 'Sell Signal', location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)\n"
+                )
+
+            await self.send_to(ws, {"type": "log", "message": f"[Generointi] Luotu Pine Script v5: '{ind_name}'"})
+
+            # 3. Validate
+            await self.send_to(ws, {"type": "log", "message": "[Validointi] Tarkistetaan syntaksi headless PineTS -moottorilla..."})
+            val = validate_pinets_syntax(pine_code)
+            if not val.get("valid"):
+                await self.send_to(ws, {"type": "log", "message": f"[Syntaksivirhe] Rivi {val.get('line')}: {val.get('error')}"})
+                return
+
+            await self.send_to(ws, {"type": "log", "message": "[Validointi] Pine Script v5 -syntaksi hyväksytty!"})
+
+            # 4. Backtest
+            await self.send_to(ws, {"type": "log", "message": f"[Laskenta] Suoritetaan tilastollinen backtest 500 kynttilälle ({source.upper()})..."})
+            df_bt = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
+            metrics = run_quantitative_backtest_logic(df_bt, strategy_rule)
+            metrics["symbol"] = symbol
+            metrics["timeframe"] = timeframe
+            metrics["source"] = source
+
+            await self.send_to(ws, {"type": "metrics", "data": metrics})
+            await self.send_to(ws, {"type": "log", "message": f"[Backtest Metriikat] {metrics.get('summary', '')}"})
+
+            # 5. Push to chart
+            await self.send_to(ws, {"type": "log", "message": f"[Kaavio] Renderöidään indikaattori '{ind_name}' Vela-kaaviolle..."})
+            await self.broadcast({
+                "type": "render_indicator",
+                "name": ind_name,
+                "code": pine_code,
+            })
+
+            # 6. Summary
+            summary = (
+                f"Objektiivinen tilannekatsaus ({symbol} / {timeframe} / {source.upper()}): "
+                f"Hinta {ctx['current_price']:.2f}, trendi {ctx['trend_direction']} ({ctx['trend_strength']}), "
+                f"ATR volatiliteetti {ctx['atr_pct']}%. Indikaattorin '{ind_name}' historiallinen voittosuhde on "
+                f"{metrics['win_rate']}% ({metrics['trades_count']} kauppaa), profit factor {metrics['profit_factor']} "
+                f"ja max drawdown {metrics['max_drawdown_pct']}%."
             )
-        elif "rsi" in prompt_lower:
-            ind_name = "RSI Momentum Extreme"
-            strategy_rule = {"type": "rsi", "rsi_period": 14, "oversold": 30, "overbought": 70}
-            pine_code = (
-                "//@version=5\n"
-                f"indicator('{ind_name}', overlay=false)\n"
-                "rsi_len = input.int(14, 'RSI Length')\n"
-                "rsi_val = ta.rsi(close, rsi_len)\n"
-                "plot(rsi_val, 'RSI', color=color.purple, linewidth=2)\n"
-                "hline(70, 'Overbought', color=color.red, linestyle=hline.style_dashed)\n"
-                "hline(30, 'Oversold', color=color.green, linestyle=hline.style_dashed)\n"
-                "hline(50, 'Midline', color=color.gray, linestyle=hline.style_dotted)\n"
-            )
-        elif "breakout" in prompt_lower or "donchian" in prompt_lower or "kanava" in prompt_lower:
-            ind_name = "Breakout Channel 20"
-            strategy_rule = {"type": "breakout", "lookback": 20}
-            pine_code = (
-                "//@version=5\n"
-                f"indicator('{ind_name}', overlay=true)\n"
-                "len = input.int(20, 'Channel Length')\n"
-                "upper = ta.highest(high, len)\n"
-                "lower = ta.lowest(low, len)\n"
-                "basis = (upper + lower) / 2\n"
-                "plot(upper, 'Upper Band', color=color.teal, linewidth=2)\n"
-                "plot(lower, 'Lower Band', color=color.maroon, linewidth=2)\n"
-                "plot(basis, 'Midline', color=color.gray, style=plot.style_line)\n"
-            )
-        else:
-            ind_name = "EMA 20/50 Dynamic Trend"
-            strategy_rule = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
-            pine_code = (
-                "//@version=5\n"
-                f"indicator('{ind_name}', overlay=true)\n"
-                "fast_len = input.int(20, 'Fast EMA')\n"
-                "slow_len = input.int(50, 'Slow EMA')\n"
-                "fast_ema = ta.ema(close, fast_len)\n"
-                "slow_ema = ta.ema(close, slow_len)\n"
-                "bull_cross = ta.crossover(fast_ema, slow_ema)\n"
-                "bear_cross = ta.crossunder(fast_ema, slow_ema)\n"
-                "plot(fast_ema, 'Fast EMA', color=color.new(#00e676, 0), linewidth=2)\n"
-                "plot(slow_ema, 'Slow EMA', color=color.new(#ff1744, 0), linewidth=2)\n"
-                "plotshape(bull_cross, 'Buy Signal', location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)\n"
-                "plotshape(bear_cross, 'Sell Signal', location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)\n"
-            )
-
-        await self.send_to(ws, {"type": "log", "message": f"[Generointi] Luotu Pine Script v5: '{ind_name}'"})
-
-        # 3. Validate
-        await self.send_to(ws, {"type": "log", "message": "[Validointi] Tarkistetaan syntaksi headless PineTS -moottorilla..."})
-        val = validate_pinets_syntax(pine_code)
-        if not val.get("valid"):
-            await self.send_to(ws, {"type": "log", "message": f"[Syntaksivirhe] Rivi {val.get('line')}: {val.get('error')}"})
-            return
-
-        await self.send_to(ws, {"type": "log", "message": "[Validointi] Pine Script v5 -syntaksi hyväksytty!"})
-
-        # 4. Backtest
-        await self.send_to(ws, {"type": "log", "message": f"[Laskenta] Suoritetaan tilastollinen backtest 500 kynttilälle ({source.upper()})..."})
-        df_bt = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
-        metrics = run_quantitative_backtest_logic(df_bt, strategy_rule)
-        metrics["symbol"] = symbol
-        metrics["timeframe"] = timeframe
-        metrics["source"] = source
-
-        await self.send_to(ws, {"type": "metrics", "data": metrics})
-        await self.send_to(ws, {"type": "log", "message": f"[Backtest Metriikat] {metrics.get('summary', '')}"})
-
-        # 5. Push to chart
-        await self.send_to(ws, {"type": "log", "message": f"[Kaavio] Renderöidään indikaattori '{ind_name}' Vela-kaaviolle..."})
-        await self.broadcast({
-            "type": "render_indicator",
-            "name": ind_name,
-            "code": pine_code,
-        })
-
-        # 6. Summary
-        summary = (
-            f"Objektiivinen tilannekatsaus ({symbol} / {timeframe} / {source.upper()}): "
-            f"Hinta {ctx['current_price']:.2f}, trendi {ctx['trend_direction']} ({ctx['trend_strength']}), "
-            f"ATR volatiliteetti {ctx['atr_pct']}%. Indikaattorin '{ind_name}' historiallinen voittosuhde on "
-            f"{metrics['win_rate']}% ({metrics['trades_count']} kauppaa), profit factor {metrics['profit_factor']} "
-            f"ja max drawdown {metrics['max_drawdown_pct']}%."
-        )
-        await self.send_to(ws, {"type": "summary", "text": summary})
-        await self.send_to(ws, {"type": "done"})
+            await self.send_to(ws, {"type": "summary", "text": summary})
+        except Exception as e:
+            logger.error("Error in run_fallback_agent: %s", e)
+            await self.send_to(ws, {"type": "log", "message": f"[Virhe] Pika-analyysi epäonnistui: {e}"})
+        finally:
+            await self.send_to(ws, {"type": "done"})
 
     async def process_generation_request(
         self,

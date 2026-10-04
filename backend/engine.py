@@ -179,6 +179,20 @@ def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, 
                 buy_signals[i] = True
             elif close[i] < np.min(low[i - lookback : i]):
                 sell_signals[i] = True
+    elif strategy_type in ("price_cross_ma", "ma", "single_ma"):
+        ma_period = int(rules.get("period", rules.get("fast_period", 20)))
+        ma_mode = rules.get("ma_mode", "ema").lower()
+        if ma_mode == "sma":
+            ma = df["close"].rolling(ma_period, min_periods=ma_period).mean().values
+        else:
+            ma = df["close"].ewm(span=ma_period, adjust=False).mean().values
+        for i in range(1, n):
+            if np.isnan(ma[i]) or np.isnan(ma[i - 1]):
+                continue
+            if close[i - 1] <= ma[i - 1] and close[i] > ma[i]:
+                buy_signals[i] = True
+            elif close[i - 1] >= ma[i - 1] and close[i] < ma[i]:
+                sell_signals[i] = True
     else:  # default: ma_crossover (EMA or SMA)
         ma_mode = rules.get("ma_mode", "ema").lower()
         if ma_mode == "sma":
@@ -226,6 +240,8 @@ def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, 
             "strategy": strategy_type,
             "trades_count": 0,
             "win_rate": 0.0,
+            "winning_trades": 0,
+            "losing_trades": 0,
             "avg_return_pct": 0.0,
             "max_drawdown_pct": 0.0,
             "profit_factor": 0.0,

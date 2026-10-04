@@ -161,14 +161,21 @@ document.addEventListener('DOMContentLoaded', () => {
     terminal.scrollTop = terminal.scrollHeight;
   }
 
-  function updateMetrics(m: BacktestMetrics) {
-    if (metricWinrate) metricWinrate.textContent = `${m.win_rate.toFixed(1)}%`;
-    if (metricPf) metricPf.textContent = `${m.profit_factor.toFixed(2)}`;
-    if (metricDd) metricDd.textContent = `${m.max_drawdown_pct.toFixed(2)}%`;
-    if (metricTrades) metricTrades.textContent = `${m.trades_count}`;
-    if (metricAvgret) metricAvgret.textContent = `${m.avg_return_pct >= 0 ? '+' : ''}${m.avg_return_pct.toFixed(2)}%`;
-    if (metricTotret && m.total_return_pct !== undefined) {
-      metricTotret.textContent = `${m.total_return_pct >= 0 ? '+' : ''}${m.total_return_pct.toFixed(2)}%`;
+  function updateMetrics(m: Partial<BacktestMetrics>) {
+    const winRate = Number(m.win_rate ?? 0);
+    const pf = Number(m.profit_factor ?? 0);
+    const dd = Number(m.max_drawdown_pct ?? 0);
+    const trades = Number(m.trades_count ?? 0);
+    const avgRet = Number(m.avg_return_pct ?? 0);
+    const totRet = Number(m.total_return_pct ?? 0);
+
+    if (metricWinrate) metricWinrate.textContent = `${isNaN(winRate) ? '0.0' : winRate.toFixed(1)}%`;
+    if (metricPf) metricPf.textContent = `${isNaN(pf) ? '0.00' : pf.toFixed(2)}`;
+    if (metricDd) metricDd.textContent = `${isNaN(dd) ? '0.00' : dd.toFixed(2)}%`;
+    if (metricTrades) metricTrades.textContent = `${isNaN(trades) ? '0' : trades}`;
+    if (metricAvgret) metricAvgret.textContent = `${avgRet >= 0 ? '+' : ''}${isNaN(avgRet) ? '0.00' : avgRet.toFixed(2)}%`;
+    if (metricTotret) {
+      metricTotret.textContent = `${totRet >= 0 ? '+' : ''}${isNaN(totRet) ? '0.00' : totRet.toFixed(2)}%`;
     }
   }
 
@@ -323,7 +330,15 @@ document.addEventListener('DOMContentLoaded', () => {
     appendLog('[Kuvaaja-analyysi] Tekninen tilannearvio valmistunut!');
   };
 
-  bridgeClient.onDone = () => {
+  let backtestWatchdog: number | null = null;
+  let askWatchdog: number | null = null;
+  let aiGenWatchdog: number | null = null;
+
+  function resetActionButtons() {
+    if (backtestWatchdog) { clearTimeout(backtestWatchdog); backtestWatchdog = null; }
+    if (askWatchdog) { clearTimeout(askWatchdog); askWatchdog = null; }
+    if (aiGenWatchdog) { clearTimeout(aiGenWatchdog); aiGenWatchdog = null; }
+
     sendBtn.disabled = false;
     sendBtn.textContent = 'Kysy';
     if (btnRunAiIndicator) {
@@ -334,6 +349,10 @@ document.addEventListener('DOMContentLoaded', () => {
       btnRunBacktest.disabled = false;
       btnRunBacktest.textContent = '▶️ Aja Backtest';
     }
+  }
+
+  bridgeClient.onDone = () => {
+    resetActionButtons();
   };
 
   bridgeClient.onConnectionChange = (connected: boolean, status: string) => {
@@ -595,6 +614,14 @@ document.addEventListener('DOMContentLoaded', () => {
     sendBtn.disabled = true;
     sendBtn.textContent = 'Analysoidaan...';
 
+    if (askWatchdog) clearTimeout(askWatchdog);
+    askWatchdog = window.setTimeout(() => {
+      if (sendBtn.disabled) {
+        resetActionButtons();
+        appendLog('[Kuvaaja-analyysi] Vastausaika ylittyi (20s). Painikkeet vapautettu.');
+      }
+    }, 20000);
+
     // Scroll analysis card into view so user sees it right away
     if (chartAnalysisCard) {
       chartAnalysisCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -790,6 +817,14 @@ document.addEventListener('DOMContentLoaded', () => {
       btnRunAiIndicator.textContent = 'Generoidaan tekoälyllä...';
       if (aiIndStatus) aiIndStatus.textContent = 'Lähetetään pyyntö Antigravity-moottorille...';
 
+      if (aiGenWatchdog) clearTimeout(aiGenWatchdog);
+      aiGenWatchdog = window.setTimeout(() => {
+        if (btnRunAiIndicator?.disabled) {
+          resetActionButtons();
+          appendLog('[Tekoäly] Vastausaika ylittyi (35s). Painikkeet vapautettu.');
+        }
+      }, 35000);
+
       const model = aiIndModel?.value || 'gemini-3.8-flash-high';
       const mode = aiIndMode?.value || 'auto';
       const tf = timeframeSelect?.value || '1h';
@@ -914,6 +949,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (agentSummary) {
         agentSummary.innerHTML = `<em>Lasketaan kvantitatiivista backtestiä 500 kynttilälle...</em>`;
       }
+
+      if (backtestWatchdog) clearTimeout(backtestWatchdog);
+      backtestWatchdog = window.setTimeout(() => {
+        if (btnRunBacktest?.disabled) {
+          resetActionButtons();
+          appendLog('[Backtest] Vastausaika ylittyi (15s). Painike vapautettu.');
+        }
+      }, 15000);
 
       bridgeClient.runBacktest(currentSymbol, timeframeSelect.value, currentSource, undefined, snapshot.activeIndicators);
     });

@@ -113,6 +113,7 @@ export class BridgeClient {
             if (this.onDone) this.onDone();
           } else if (type === 'error') {
             if (this.onLog) this.onLog(`[Virhe] ${data.message || 'Tuntematon virhe'}`);
+            if (this.onDone) this.onDone();
           }
         } catch (err) {
           console.error('[BridgeClient] Failed to parse message:', event.data, err);
