@@ -252,6 +252,7 @@
       flex-direction: column;
       flex-shrink: 0;
       z-index: 5;
+      overflow-y: auto;
     }
 
     .panel-section {
@@ -770,26 +771,137 @@
       color: #fff;
     }
 
+    /* Mobile Section Navigation (hidden on desktop) */
+    .mobile-section-nav {
+      display: none;
+    }
+
     /* Responsive Layout */
     @media (max-width: 900px) {
-      .app-main {
-        flex-direction: column;
+      html, body {
+        height: auto !important;
+        min-height: 100% !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
       }
-      #chart-container {
-        height: 52vh;
+
+      header {
+        height: auto !important;
+        min-height: 52px;
+        padding: 8px 12px;
+        flex-wrap: wrap;
+        gap: 8px;
       }
-      #agent-panel {
-        width: 100%;
-        height: 48vh;
-        border-left: none;
-        border-top: 1px solid var(--border-color);
+
+      .brand {
+        font-size: 1rem;
       }
+
       .controls-bar {
-        gap: 4px;
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+        padding-bottom: 4px;
+        gap: 6px;
+        -webkit-overflow-scrolling: touch;
       }
+
       .controls-bar select, .controls-bar button {
-        padding: 4px 8px;
+        padding: 5px 8px;
+        font-size: 0.78rem;
+        flex-shrink: 0;
+      }
+
+      .status-pills {
+        display: none !important;
+      }
+
+      /* Mobile Section Navigation (Sticky bar on mobile) */
+      .mobile-section-nav {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background-color: #0d121f;
+        border-bottom: 1px solid var(--border-color);
+        overflow-x: auto;
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        z-index: 25;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .mobile-nav-btn {
+        padding: 4px 10px;
         font-size: 0.75rem;
+        border-radius: 12px;
+        background-color: var(--bg-card);
+        border: 1px solid var(--border-color);
+        color: var(--text-muted);
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .mobile-nav-btn:hover, .mobile-nav-btn:active {
+        background-color: #232d42;
+        color: #fff;
+        border-color: #3b82f6;
+      }
+
+      .app-main {
+        display: flex !important;
+        flex-direction: column !important;
+        height: auto !important;
+        min-height: auto !important;
+        overflow: visible !important;
+      }
+
+      #chart-container {
+        width: 100% !important;
+        height: 50vh !important;
+        min-height: 350px !important;
+        max-height: 480px !important;
+        flex: none !important;
+      }
+
+      #agent-panel {
+        width: 100% !important;
+        height: auto !important;
+        min-height: auto !important;
+        flex: none !important;
+        border-left: none !important;
+        border-top: 2px solid var(--border-color) !important;
+        overflow: visible !important;
+      }
+
+      .panel-section {
+        padding: 12px 14px;
+      }
+
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
+
+      #agent-summary {
+        max-height: 250px !important;
+      }
+
+      .terminal-container {
+        min-height: 220px !important;
+        max-height: 350px !important;
+      }
+
+      #agent-terminal {
+        min-height: 180px !important;
+        max-height: 300px !important;
+      }
+
+      .modal-window {
+        width: 95% !important;
+        max-height: 90vh !important;
       }
     }
   </style>
@@ -877,6 +989,15 @@
     <button id="clear-all-indicators-btn" class="btn-xs btn-outline" title="Poista kaikki aktiiviset indikaattorit">Tyhjennä kaikki</button>
   </div>
 
+  <!-- Mobile Quick Section Jump Bar (Sticky on mobile) -->
+  <div id="mobile-nav-bar" class="mobile-section-nav">
+    <button class="mobile-nav-btn" data-target="chart-container">📈 Kaavio</button>
+    <button class="mobile-nav-btn" data-target="prompt-section">💬 Kysy kuvaajasta</button>
+    <button class="mobile-nav-btn" data-target="metrics-section">📊 Metriikat</button>
+    <button class="mobile-nav-btn" data-target="summary-section">📝 Tilannekatsaus</button>
+    <button class="mobile-nav-btn" data-target="terminal-section">💻 Loki</button>
+  </div>
+
   <div class="app-main">
     <!-- WebGL2 Vela Chart Area -->
     <div id="chart-container"></div>
@@ -884,7 +1005,7 @@
     <!-- Agent & Controls Side Panel -->
     <div id="agent-panel">
       <!-- Kysy kuvaajasta (Tekninen tekoälyanalyysi) -->
-      <div class="panel-section">
+      <div id="prompt-section" class="panel-section">
         <div class="panel-header">
           <span>💬 Kysy kuvaajasta</span>
           <span style="font-size: 0.7rem; color: #60a5fa; font-weight: 600;">Tekninen tekoälyanalyysi</span>
@@ -910,7 +1031,7 @@
       </div>
 
       <!-- Quantitative metrics display -->
-      <div class="panel-section">
+      <div id="metrics-section" class="panel-section">
         <div class="panel-header">
           <span>Kvantitatiiviset Metriikat (Backtest)</span>
         </div>
@@ -943,7 +1064,7 @@
       </div>
 
       <!-- Agent objective summary -->
-      <div class="panel-section">
+      <div id="summary-section" class="panel-section">
         <div class="panel-header">
           <span>Objektiivinen Tilannekatsaus</span>
           <button id="save-current-ind-btn" class="btn-xs btn-outline" title="Tallenna kaavion koodi kirjastoon">💾 Tallenna indikaattori</button>
@@ -954,7 +1075,7 @@
       </div>
 
       <!-- Real-time Agent Streaming Terminal -->
-      <div class="terminal-container panel-section" style="flex: 1; border-bottom: none;">
+      <div id="terminal-section" class="terminal-container panel-section" style="flex: 1; border-bottom: none;">
         <div class="panel-header">
           <span>Agentin Suoritusloki</span>
           <button id="clear-term-btn" style="padding: 2px 8px; font-size: 0.7rem;">Tyhjennä</button>

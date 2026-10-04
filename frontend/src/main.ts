@@ -617,6 +617,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Mobile section jump navigation buttons
+  document.querySelectorAll('.mobile-nav-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-target');
+      if (targetId) {
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    });
+  });
+
+
   // 7. Indicators Library Modal Logic
   const modalTabBtns = document.querySelectorAll('.modal-tab-btn');
   modalTabBtns.forEach((btn) => {
