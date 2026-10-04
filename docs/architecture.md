@@ -73,32 +73,37 @@ flowchart TB
   - Kaavioalue: WebGL2-canvas, johon Vela liitetään.
   - Oikea sivupaneeli: Luonnollisen kielen komentopalkki, pikavalintanapit, suoratoistoterminaali, metriikkakortit ja agentin sanallinen tilannekatsaus.
 - **[`src/chart.ts`](file:///c:/Users/user/Documents/koodit/VELA-AGENT-WORKBENCH/frontend/src/chart.ts)**:
-  - Hallinnoi Vela-instanssia `MultiProviderFeed`-syötteellä.
-  - Rekisteröi sekä `HyperliquidProvider` että `BinanceProvider`.
+  - Hallinnoi Vela-instanssia `MultiProviderFeed`-syötteellä (`HyperliquidProvider`, `BinanceProvider` ja `ArchiveProvider`).
   - Alustaa `@luxalgo/vela-pinets` -moottorin (`PineWorkerEngine` ensisijaisesti, `PineEngine` varalla).
-  - Tarjoaa metodit:
-    - `init(symbol, timeframe, source)`
-    - `setMarket(symbol, timeframe, source)`
-    - `injectIndicator(code, name)`
+  - Tarjoaa metodit: `init`, `setMarket`, `injectIndicator`, `removeIndicator`, `toggleIndicatorVisibility`, `getActiveIndicatorsList`.
 - **[`src/bridge_client.ts`](file:///c:/Users/user/Documents/koodit/VELA-AGENT-WORKBENCH/frontend/src/bridge_client.ts)**:
-  - Muodostaa WebSocket-yhteyden dynaamisesti isännän mukaan (`ws://${window.location.hostname}:8765/ws`).
+  - Kaksoisväylä: WebSocket reaaliaikaiseen suoratoistoon ja nopea HTTP REST (`POST /api/backtest`) pudotuksettomaan backtestaukseen.
   - Reagoi automaattisesti yhteyskatkoihin ja kytkeytyy uudelleen.
   - Jakaa saapuvat viestit tyypeittäin (`log`, `metrics`, `render_indicator`, `summary`, `done`, `error`).
+- **[`src/user_memory.ts`](file:///c:/Users/user/Documents/koodit/VELA-AGENT-WORKBENCH/frontend/src/user_memory.ts)**:
+  - Yhden käyttäjän pysyvä muistijärjestelmä.
+  - Tallentaa ja palauttaa automaattisesti valitun markkinaparin, suosikit, aktiiviset indikaattorit ja viimeisimmät metriikat selaimen `localStorageen` sekä palvelimelle (`/api/user-state`).
+- **[`src/community_scripts.ts`](file:///c:/Users/user/Documents/koodit/VELA-AGENT-WORKBENCH/frontend/src/community_scripts.ts)**:
+  - 10 esivalidoitua TradingView Community Scriptiä neljässä kategoriassa (Trendi, Oskillaattorit, Volatiliteetti, Hintatoiminta).
 - **[`src/main.ts`](file:///c:/Users/user/Documents/koodit/VELA-AGENT-WORKBENCH/frontend/src/main.ts)**:
-  - Liittää DOM-tapahtumat `VelaChartManager`- ja `BridgeClient`-luokkiin.
+  - Sovelluksen pääohjain: DOM-tapahtumakuuntelijat, automaattinen tilanpalautus käynnistyksessä, suosikkipalkki, indikaattorikirjasto, chat-intenttien reititys ja backtest-ohjaus.
 
 ---
 
 ### 3.2 Taustasilta ja Prosessinhallinta (`backend/bridge.py`)
 
 - **WebSocket-palvelin (`0.0.0.0:8765`)**:
-  - Kuuntelee selaimelta tulevia `generate_indicator`-viestejä.
+  - Kuuntelee selaimelta tulevia `generate_indicator`- ja `analyze_chart` -viestejä.
   - Suoratoistaa agentin stdout/stderr-viestit rivi riviltä selaimen terminaaliin.
-  - Lähettää valmistuneet indikaattorikoodit ja backtest-metriikat selaimeen.
+  - Lähettää valmistuneet indikaattorikoodit ja tilanneanalyysit selaimeen.
 - **HTTP REST -päätepisteet**:
-  - `POST /api/push_indicator`: Vastaanottaa indikaattorin FastMCP-työkalulta ja lähettää sen WebSocket-asiakkaille.
-  - `POST /api/push_metrics`: Vastaanottaa lasketut backtest-metriikat.
-  - `GET /api/candles`: Palauttaa JSON-kynttilähistorian katselua tai testausta varten.
+  - `POST /api/backtest`: Suorittaa välittömän deterministisen backtestin yhdelle tai useammalle konfluenssi-indikaattorille.
+  - `GET /api/user-state` & `POST /api/user-state`: Yhden käyttäjän tilamuistin luku ja tallennus (`backend/user_state.json`).
+  - `GET /api/symbols`: Kaikki Hyperliquid- ja Binance-kaupankäyntiparit (24h välimuisti).
+  - `GET /api/candles`: Kynttilähistoria pörsseistä tai puretusta arkistosta.
+  - `GET /api/indicators`, `POST /api/indicators`, `DELETE /api/indicators/{id}`: Omien indikaattorien hallinta.
+  - `POST /api/historical/download` & `GET /api/historical/list`: Binance Vision ZIP/CSV -lataukset ja arkistolistaus.
+  - `POST /api/push_indicator` & `POST /api/push_metrics`: FastMCP-työkalujen viestinvälitys selaimelle.
   - `GET /api/health`: Terveystarkistus.
 - **Antigravity CLI -aliprosessi**:
   - Käynnistää `agy.exe` komennolla:

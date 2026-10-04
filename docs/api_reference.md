@@ -113,6 +113,9 @@ Suorittaa deterministisen kvantitatiivisen backtestin 500 kynttilän historiadat
      "lookback": 20
    }
    ```
+4. **Monen indikaattorin konfluenssi (`multi_confluence`)**:
+   Kun kaaviolla on useita aktiivisia indikaattoreita (esim. `EMA 20/50` + `RSI` + `Donchian`), moottori yhdistää niiden signaalit monen ehdon konfluenssimalliksi. Trendi antaa pääsuunnan, oskillaattori (RSI) vahvistaa momentumin ja kanavamurto ajoittaa sisääntulon. Tukee sekä Long- että Short-positioita.
+
 
 **Palautusarvo (`dict`):**
 ```json
@@ -250,8 +253,55 @@ Lataa ja purkaa kynttiläarkiston `data.binance.vision` -arkistosta valitulle ai
 ### `GET /api/historical/list`
 Listaa kaikki levylle ladatut ja puretut historialliset CSV-arkistot sekä tiedot muista rekisteröitymisvapaista julkisista arkistoista (Bybit, OKX).
 
-### `GET /api/indicators`, `POST /api/indicators`, `DELETE /api/indicators/{id}`
-Hallinnoi käyttäjän tallennettuja indikaattoreita pysyvässä JSON-tiedostossa (`backend/indicators/saved_indicators.json`).
+### `POST /api/backtest`
+Suorittaa deterministisen kvantitatiivisen backtestin välittömästi ilman WebSocket-riippuvuutta. Tunnistaa kaaviolla aktiivisena olevat indikaattorit ja muodostaa niistä automaattisesti konfluenssistrategian.
+- **Pyyntö (JSON):**
+  ```json
+  {
+    "symbol": "BTC",
+    "timeframe": "1h",
+    "source": "hyperliquid",
+    "rules": {},
+    "activeIndicators": [
+      {
+        "name": "EMA 20/50 Crossover Trend",
+        "code": "//@version=5\nindicator('EMA 20/50 Crossover Trend')...\n"
+      },
+      {
+        "name": "Relative Strength Index (RSI)",
+        "code": "//@version=5\nindicator('RSI')...\n"
+      }
+    ]
+  }
+  ```
+- **Vastaus (JSON):**
+  ```json
+  {
+    "status": "ok",
+    "strategy": "Konfluenssi: EMA 20/50 Crossover Trend + Relative Strength Index (RSI)",
+    "metrics": {
+      "trades_count": 14,
+      "win_rate": 21.4,
+      "winning_trades": 3,
+      "losing_trades": 11,
+      "avg_return_pct": 0.08,
+      "total_return_pct": 1.14,
+      "profit_factor": 1.18,
+      "max_drawdown_pct": 3.82,
+      "summary": "..."
+    },
+    "summary": "### Kvantitatiivinen Backtest: Konfluenssi...\n\n- Kauppojen määrä: 14..."
+  }
+  ```
+
+### `GET /api/user-state` ja `POST /api/user-state`
+Yhden käyttäjän pysyvä tilamuisti (`backend/user_state.json`), joka tallentaa ja palauttaa työtilan tilan palvelimen ja selaimen välillä.
+- **Tallennettavat kentät:**
+  - `selectedMarket`: Symboli, aikajänne, lähde ja näyttönimi.
+  - `favoriteKeys`: Suosikkiparien tunnisteet (esim. `["hyperliquid:BTC", "binance:BTCUSDT"]`).
+  - `activeIndicators`: Kaaviolle ladattujen aktiivisten indikaattoreiden koodit ja nimet (palautetaan automaattisesti käynnistyksessä).
+  - `lastBacktest`: Viimeisimmät lasketut metriikat ja sanallinen yhteenveto.
+  - `lastAnalysis`: Viimeisin tekninen tilannearvio ja osto/myynti-bias.
 
 ### `GET /api/health`
 Palvelimen terveydentila ja aktiivisten asiakkaiden määrä.

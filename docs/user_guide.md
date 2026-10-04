@@ -15,7 +15,7 @@ Aja projektin juurihakemistossa käynnistysskripti:
 .\run.ps1
 ```
 
-**Tai Windows komentokehote:**
+**Tai Windows komentokehotteessa:**
 ```cmd
 run.bat
 ```
@@ -42,15 +42,16 @@ Skripti käynnistää automaattisesti kaksi taustapalvelua:
 +--------------------------------------------------------------------------------------------------------+
 | ⭐ Suosikit: [⭐ BTC/USD] [⭐ ETH/USD] [⭐ SOL/USD] [⭐ BTC/USDT] ... [+ Lisää nykyinen]                |
 +--------------------------------------------------------------------------------------------------------+
-| Aktiiviset indikaattorit: [👁️ EMA 20/50 ✕] [👁️ RSI Extreme ✕] [Tyhjennä kaikki]                       |
+| Aktiiviset indikaattorit: [👁️ EMA 20/50 ✕] [👁️ RSI ✕] [Tyhjennä kaikki]                               |
 +-------------------------------------------------------+------------------------------------------------+
 |                                                       | 💬 Kysy kuvaajasta                             |
-|                                                       | [Syötä kysymys: "Mikä on käyrän tilanne?"]     |
+|                                                       | [Syötä kysymys tai pyyntö: "Aja backtest"]     |
 |                                                       | [🎯 Osto/Myynti] [📍 Tasot] [⚖️ Konfluenssi]   |
 |               Vela WebGL2 -kaavio                     |                                                |
-|             (Kynttilät + Indikaattorit)               | Objektiivinen Tilannekatsaus (AI Raportti)     |
+|             (Kynttilät + Indikaattorit)               | 🟢 Objektiivinen Tilannekatsaus (AI Raportti)  |
 |                                                       |                                                |
 |                                                       | Kvantitatiiviset Metriikat (Backtest)          |
+|                                                       | [Aktiivinen: EMA 20/50 + RSI] [▶️ Aja Backtest]|
 |                                                       |                                                |
 |                                                       | Agentin Suoritusloki (Reaaliaikainen terminaali)|
 +-------------------------------------------------------+------------------------------------------------+
@@ -66,18 +67,18 @@ Skripti käynnistää automaattisesti kaksi taustapalvelua:
    - Suodattimet: *Kaikki*, *⭐ Suosikit*, *Hyperliquid (234)*, *Binance Spot (503)*.
    - Jokaisella rivillä on tähti ⭐, jota klikkaamalla parin voi tallentaa suosikiksi tai poistaa suosikeista.
 3. **⭐ Suosikkipalkki**:
-   - Yläpalkin alla näkyvät tallennetut suosikkiparit (tallennus selaimen `localStorageen`).
+   - Yläpalkin alla näkyvät tallennetut suosikkiparit (tallennus selaimen muistiin ja backend-tilaan).
    - Yhdellä klikkauksella voit vaihtaa suoraan seurattavaa markkinaa ja kaaviota.
 4. **Aikajänne**: Valitse `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, `1w` (Viikko) tai `1M` (Kuukausi).
 5. **Aktiiviset indikaattorit -palkki**:
    - Kaikki kaaviolle lisätyt indikaattorit näkyvät omina merkkeinään.
-   - Voit piilottaa/näyttää (`👁️` / `🙈`) tai poistaa (`✕`) yksittäisiä indikaattoreita ilman, että koko kaavio nollautuu.
+   - Voit piilottaa/näyttää (`👁️` / `🙈`) tai poistaa (`✕`) yksittäisiä indikaattoreita ilman koko kaavion nollautumista.
 
 ---
 
 ## 3. "Kysy Kuvaajasta" – Tekninen Tekoälyanalyysi
 
-Oikea sivupaneeli on omistettu tekniselle analyysille ja interaktiiviselle kyselylle:
+Oikea sivupaneeli tarjoaa reaaliaikaisen teknisen tilannekuvan:
 
 ### 3.1 Pika-analyysipainikkeet
 - **🎯 Osto vai myynti? (Bias)**: Analysoi trendin suunnan, liukuvien keskiarvojen järjestyksen (EMA 20/50, SMA 100) ja antaa objektiivisen suuntasuosituksen.
@@ -85,11 +86,13 @@ Oikea sivupaneeli on omistettu tekniselle analyysille ja interaktiiviselle kysel
 - **⚖️ Signaalien konfluenssi**: Arvioi kaikkien ruudulla näkyvien aktiivisten indikaattoreiden ja hintatoiminnan yhteensopivuutta.
 - **📈 Trendi & RSI**: Mittaa momentumin voimakkuuden ja yliostetut/ylimyydyt alueet.
 - **🛡️ ATR & Stop-Loss**: Suosittelee riskinhallintatasoja ja suojavyöhykkeitä markkinan volatiliteetin perusteella.
+- **📊 Volyymipoikkeamat**: Tunnistaa epätavallisen volyymin suhteessa 20 kynttilän keskiarvoon.
 
-### 3.2 Omat Kysymykset
+### 3.2 Omat Kysymykset & Intent-reititys
 Voit kirjoittaa tekstikenttään minkä tahansa kysymyksen suomeksi tai englanniksi:
 - *"Mikä on riskitaso, jos avaan pitkän position nyt tasolta 69 500?"*
 - *"Onko havaittavissa volyymipoikkeamia tai divergenssejä?"*
+- **Automaattinen Backtest-reititys**: Jos kirjoitat *"Aja EMA 20/50 backtest"* tai *"Testaa tätä strategiaa"*, järjestelmä tunnistaa pyynnön luonnollisesta kielestä ja käynnistää kvantitatiivisen backtestin suoraan.
 
 ---
 
@@ -103,7 +106,7 @@ Paina yläpalkin painiketta **📊 Indikaattorit** avataksesi kirjastomodaalin:
 
 ### 4.2 TradingView Community Scripts (10 kpl)
 - Sisältää 10 suosittua ja testattua yhteisöskriptiä (mm. *Supertrend Multi-Length*, *Waddah Attar Explosion*, *Volume Flow Indicator*, *Nadaraya-Watson Envelope*).
-- Voit suodattaa kategorioittain (Trendi, Oskillaattorit, Volatiliteetti, Hintatoiminta) tai hakea vapaalla tekstipohjaisella haulla.
+- Voit suodattaa kategorioittain (Trendi, Oskillaattorit, Volatiliteetti, Hintatoiminta) tai hakea vapaalla tekstihaulla.
 
 ### 4.3 + Luo Uusi Indikaattori
 Välilehti tarjoaa kaksi helppoa tapaa:
@@ -116,22 +119,59 @@ Välilehti tarjoaa kaksi helppoa tapaa:
 
 ---
 
-## 5. Täysi Historiadata (data.binance.vision)
+## 5. Kvantitatiivinen Backtestaus & Moni-indikaattorikonfluenssi
+
+Oikean sivupaneelin **Kvantitatiiviset Metriikat (Backtest)** -osiossa sijaitsee älykäs **`▶️ Aja Backtest`** -painike.
+
+### 5.1 Miten Backtestaus Toimii?
+1. **Yksittäinen indikaattori**:
+   - Jos kaaviolla on esimerkiksi `EMA 20/50 Crossover Trend`, moottori simuloi suoraan 500 kynttilän jaksolle kultaiset ja kuoleman risteykset.
+2. **Useiden indikaattoreiden samanaikainen lataus (Konfluenssi)**:
+   - Jos lataat kaaviolle kaksi tai useampia indikaattoreita (esim. `EMA 20/50` + `Relative Strength Index (RSI)`), moottori yhdistää niiden ehdot:
+     - **Trendi** (EMA/SMA) määrää position perussuunnan (Long vs. Short).
+     - **Momentum** (RSI) suodattaa huonon markkinavaiheen sisääntulot.
+     - **Kanavamurto** (Donchian/Supertrend) ajoittaa liikkeellelähdön.
+3. **Molempien suuntien simulointi (Long & Short)**:
+   - Järjestelmä simuloi sekä nousu- että laskumarkkinat. Jos karhumarkkinassa ensimmäisenä tulee myyntisignaali, se avaa Short-position.
+4. **Metriikat**:
+   - **Voittoprosentti (Win Rate)**: Voittavien kauppojen osuus.
+   - **Profit Factor**: Bruttovoittojen suhde bruttotappioihin.
+   - **Suurin salkkupudotus (Max Drawdown %)**: Suurin pääoman pudotus huipusta.
+   - **Kauppojen määrä**: Kauppojen kokonaismäärä.
+   - **Keskimääräinen tuotto**: Keskimääräinen %-tuotto per kauppa.
+   - **Kokonaistuotto**: Yhteenlaskettu kumulatiivinen tuotto.
+
+---
+
+## 6. Yhden Käyttäjän Pysyvä Muisti (`UserMemory`)
+
+Sovelluksessa on sisäänrakennettu tilanmuisti, joka tekee työtilasta täysin pysyvän ilman erillistä kirjautumista:
+
+- **Mitä tallennetaan automaattisesti?**
+  1. **Valittu markkina**: Viimeisin pörssi (`hyperliquid`/`binance`), pari ja aikajänne.
+  2. **Suosikit (⭐)**: Kaikki tähdellä merkatut tokenit.
+  3. **Kaavion aktiiviset indikaattorit**: Kaikki kaaviolle ladatut indikaattorit tallentuvat. **Kun päivität sivun (F5) tai käynnistät selaimen uudestaan, kaikki indikaattorit ladataan automaattisesti takaisin kaaviolle.**
+  4. **Viimeisimmät tulokset**: Viimeksi ajetut backtest-metriikat ja tilannekatsauksen teksti säilyvät ruudulla.
+- **Tallennusmekanismi**: Kaksoistallennus selaimen `localStorageen` sekä palvelimen `backend/user_state.json` -tiedostoon HTTP REST -rajapinnan kautta.
+
+---
+
+## 7. Täysi Historiadata (data.binance.vision)
 
 Paina yläpalkin painiketta **💾 Historiadata**:
 
-### 5.1 Julkisten ZIP/CSV-Arkistojen Lataus
+### 7.1 Julkisten ZIP/CSV-Arkistojen Lataus
 - Binance Data Collection tarjoaa ilman kirjautumista tai API-rajoituksia kuukausikohtaiset kynttiläarkistot vuodesta 2017 alkaen.
 - Valitse pari (esim. `BTCUSDT`), aikaväli (`1h`, `1d`, `1w`, `1M`), alkuvuosi ja -kuukausi sekä loppuvuosi ja -kuukausi (esim. 2023/01 – 2024/03).
 - Paina **Lataa ja pura arkisto**. Palvelin lataa ZIP-paketit taustalla, purkaa CSV-tiedostot ja indeksoi ne välimuistiin.
 
-### 5.2 📊 Avaa Kaaviolla (Arkistokatselin)
+### 7.2 📊 Avaa Kaaviolla (Arkistokatselin)
 - Kaikki paikallisesti ladatut arkistot listataan taulukossa.
 - Jokaisen tiedoston kohdalla on painike **📊 Avaa kaaviolla**, jota klikkaamalla kyseinen historiadata latautuu välittömästi Vela WebGL2 -kaaviolle tarkasteltavaksi!
 
 ---
 
-## 6. Muut Julkiset Datalähteet
+## 8. Muut Julkiset Datalähteet
 
 Järjestelmä tukee tai dokumentoi myös seuraavat rekisteröitymisvapaat julkiset rajapinnat:
 - **Bybit Public Archive**: `https://public.bybit.com/kline/` (Suorat kynttilä- ja kauppa-arkistot).

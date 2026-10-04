@@ -1,7 +1,13 @@
 /**
- * Application Entry Point: DOM controls, multi-indicator management,
- * TradingView community scripts library, historical data downloader,
- * full token pair search & favorites bar, and chart analysis chat.
+ * Application Entry Point:
+ * - DOM-ohjaus ja tapahtumankuuntelijat
+ * - Moni-indikaattorin konfluenssinhallinta ja kaavioinjektiot (Vela WebGL2)
+ * - Yhden käyttäjän pysyvä muistijärjestelmä (UserMemoryManager: markkina, suosikit, indikaattorit, metriikat)
+ * - Luotettava kvantitatiivinen backtestaus (HTTP REST POST /api/backtest + WS)
+ * - TradingView Community Scripts (10 kpl) ja tekoälygeneraattori
+ * - Binance Vision historiallinen ZIP/CSV-lataaja ja arkistokatselin
+ * - Tokeniparien nopea haku yli 730 parille ja ⭐ suosikkipalkki
+ * - Kysy kuvaajasta: tekninen analyysi ja luonnollisen kielen intent-reititys
  */
 
 import { VelaChartManager, ActiveIndicatorItem } from './chart';

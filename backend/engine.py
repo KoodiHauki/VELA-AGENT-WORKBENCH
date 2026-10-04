@@ -141,7 +141,20 @@ def run_quantitative_backtest_logic(
     rules: Optional[Dict[str, Any]] = None,
     active_indicators: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Execute deterministic quantitative backtest with single-indicator or multi-indicator confluence."""
+    """Suorittaa deterministisen kvantitatiivisen backtestin joko yksittäiselle
+    strategialle tai useiden kaaviolla aktiivisena olevien indikaattoreiden konfluenssille.
+
+    Logiikka:
+    1. Jos kaaviolla on useita indikaattoreita (esim. EMA 20/50 + RSI), tunnistetaan
+       niiden tyypit ja yhdistetään ne monen ehdon konfluenssimalliksi:
+       - Trendi (EMA/SMA) antaa positiosuunnan.
+       - Momentum (RSI) suodattaa äärialueet ja vahvistaa liikkeen.
+       - Kanavamurrot (Donchian/Supertrend) ajoittavat sisääntulon.
+    2. Jos kaaviolla on 1 indikaattori, tulkitaan sen tyyppi ja parametrit automaattisesti.
+    3. Simuloidaan sekä pitkät (Long) että lyhyet (Short) kaupat 500 kynttilälle.
+    4. Lasketaan 6 keskeistä tilastometriikkaa: Win rate, Profit Factor, Drawdown,
+       Kauppojen määrä, Kesk. tuotto ja Kokonaistuotto.
+    """
     if df.empty or len(df) < 30:
         return {
             "error": "Insufficient history for backtesting (minimum 30 bars required)",

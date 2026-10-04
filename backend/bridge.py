@@ -414,7 +414,10 @@ class BridgeServer:
         rules: Optional[Dict[str, Any]] = None,
         active_indicators: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Execute deterministic quantitative backtest with single or multi-indicator confluence."""
+        """Yhteinen laskentafunktio deterministiselle backtestaukselle.
+        Käytetään sekä HTTP REST POST /api/backtest -päätepisteessä että WebSocket-kutsussa.
+        Noutaa 500 kynttilää valitulta pörssiltä ja ajaa engine.py:n konfluenssilogiikan.
+        """
         symbol = normalize_symbol(symbol)
         timeframe = normalize_interval(timeframe)
         source = source.lower()
