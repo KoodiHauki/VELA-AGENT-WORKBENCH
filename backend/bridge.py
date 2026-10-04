@@ -319,7 +319,6 @@ class BridgeServer:
                         bias_tag = "SELL"
 
                     await self.send_to(ws, {"type": "chart_analysis", "text": full_response.strip(), "bias": bias_tag})
-                    await self.send_to(ws, {"type": "summary", "text": full_response.strip()})
                     await self.send_to(ws, {"type": "done"})
                     return
             except asyncio.TimeoutError:
@@ -375,7 +374,6 @@ class BridgeServer:
         )
 
         await self.send_to(ws, {"type": "chart_analysis", "text": analysis_text, "bias": bias_tag})
-        await self.send_to(ws, {"type": "summary", "text": analysis_text})
         await self.send_to(ws, {"type": "done"})
 
     async def run_fallback_agent(

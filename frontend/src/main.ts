@@ -291,18 +291,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (chartAnalysisOutput) {
       chartAnalysisOutput.innerHTML = formatMarkdownText(currentAnalysisText);
     }
-    if (agentSummary) {
-      agentSummary.innerHTML = formatMarkdownText(currentAnalysisText);
-    }
   };
 
   bridgeClient.onChartAnalysis = (analysis) => {
     currentAnalysisText = analysis.text;
     if (chartAnalysisOutput) {
       chartAnalysisOutput.innerHTML = formatMarkdownText(analysis.text);
-    }
-    if (agentSummary) {
-      agentSummary.innerHTML = formatMarkdownText(analysis.text);
     }
 
     if (analysisBiasBadge) {
@@ -592,9 +586,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     appendLog(`[Kysy kuvaajasta] Haetaan tilannearvio kysymykselle: "${q}"...`);
-    if (agentSummary) {
-      agentSummary.textContent = 'Analysoidaan kuvaajan tilannetta ja aktiivisia indikaattoreita...';
-    }
 
     sendBtn.disabled = true;
     sendBtn.textContent = 'Analysoidaan...';
