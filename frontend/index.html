@@ -1152,9 +1152,12 @@
 
       <!-- Quantitative metrics display -->
       <div id="metrics-section" class="panel-section">
-        <div class="panel-header">
-          <span>Kvantitatiiviset Metriikat (Backtest)</span>
-          <button id="btn-run-backtest" class="btn-xs btn-primary" title="Suorita kvantitatiivinen backtest aktiiviselle kaaviolle ja indikaattorille">▶️ Aja Backtest</button>
+        <div class="panel-header" style="flex-wrap: wrap; gap: 6px;">
+          <div>
+            <span>Kvantitatiiviset Metriikat (Backtest)</span>
+            <div id="active-strategy-badge" style="font-size:0.75rem; color:#60a5fa; font-weight:normal; margin-top:2px;">Aktiivinen: Kaavion indikaattorit</div>
+          </div>
+          <button id="btn-run-backtest" class="btn-xs btn-primary" title="Suorita kvantitatiivinen backtest aktiiviselle kaaviolle ja indikaattoreille">▶️ Aja Backtest</button>
         </div>
         <div class="metrics-grid" id="metrics-display">
           <div class="metric-card">

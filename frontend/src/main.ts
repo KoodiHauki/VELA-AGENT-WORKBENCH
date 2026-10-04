@@ -7,6 +7,7 @@
 import { VelaChartManager, ActiveIndicatorItem } from './chart';
 import { BridgeClient, BacktestMetrics, SavedIndicator, TradingSymbol } from './bridge_client';
 import { COMMUNITY_SCRIPTS } from './community_scripts';
+import { UserMemoryManager, SavedActiveIndicator } from './user_memory';
 
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Elements - Main Controls
@@ -26,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const presetChips = document.querySelectorAll('.preset-chip');
   const saveCurrentIndBtn = document.getElementById('save-current-ind-btn') as HTMLButtonElement;
   const btnRunBacktest = document.getElementById('btn-run-backtest') as HTMLButtonElement;
+  const activeStrategyBadge = document.getElementById('active-strategy-badge') as HTMLElement;
 
   // Dedicated chart analysis response card elements
   const chartAnalysisCard = document.getElementById('chart-analysis-card') as HTMLElement;
@@ -112,30 +114,29 @@ document.addEventListener('DOMContentLoaded', () => {
   const metricAvgret = document.getElementById('metric-avgret') as HTMLElement;
   const metricTotret = document.getElementById('metric-totret') as HTMLElement;
 
-  // App State
+  // App State & Single-User Memory Persistence
+  const userMemory = new UserMemoryManager();
+  const initialMemory = userMemory.getState();
+
   let lastInjectedCode = '';
   let lastInjectedName = '';
-  let currentSymbol = 'BTC';
-  let currentSource = 'hyperliquid';
-  let currentPairName = 'BTC/USD';
+  let currentSymbol = initialMemory.selectedMarket?.symbol || 'BTC';
+  let currentSource = initialMemory.selectedMarket?.source || 'hyperliquid';
+  let currentPairName = initialMemory.selectedMarket?.displayName || (currentSource === 'binance' ? `${currentSymbol.replace('USDT', '')}/USDT` : `${currentSymbol}/USD`);
   let allSymbols: TradingSymbol[] = [];
-  let favoriteKeys: Set<string> = loadFavorites();
+  let favoriteKeys: Set<string> = new Set(
+    initialMemory.favoriteKeys && initialMemory.favoriteKeys.length > 0
+      ? initialMemory.favoriteKeys
+      : ['hyperliquid:BTC', 'hyperliquid:ETH', 'hyperliquid:SOL', 'binance:BTCUSDT']
+  );
   let activeSymbolFilter: string = 'all';
 
-  function loadFavorites(): Set<string> {
-    try {
-      const stored = localStorage.getItem('vela_favorite_pairs');
-      if (stored) {
-        return new Set(JSON.parse(stored));
-      }
-    } catch (_) {}
-    return new Set(['hyperliquid:BTC', 'hyperliquid:ETH', 'hyperliquid:SOL', 'binance:BTCUSDT']);
-  }
+  let lastBacktestMetrics: BacktestMetrics | null = initialMemory.lastBacktest?.metrics || null;
+  let lastBacktestSummary: string = initialMemory.lastBacktest?.summary || '';
+  let currentAnalysisText = '';
 
   function saveFavorites() {
-    try {
-      localStorage.setItem('vela_favorite_pairs', JSON.stringify(Array.from(favoriteKeys)));
-    } catch (_) {}
+    userMemory.setFavorites(Array.from(favoriteKeys));
     if (favCountBadge) {
       favCountBadge.textContent = String(favoriteKeys.size);
     }
@@ -179,10 +180,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function updateActiveStrategyBadge() {
+    if (!activeStrategyBadge) return;
+    const activeList = chartManager.getActiveIndicatorsList().filter((i) => i.visible);
+    if (activeList.length === 0) {
+      activeStrategyBadge.textContent = 'Oletus: EMA 20/50 Trend Cross';
+      activeStrategyBadge.style.color = '#94a3b8';
+    } else if (activeList.length === 1) {
+      activeStrategyBadge.textContent = `Aktiivinen: ${activeList[0].name}`;
+      activeStrategyBadge.style.color = '#60a5fa';
+    } else {
+      activeStrategyBadge.textContent = `Yhdistelmä (${activeList.length} indikaattoria): ${activeList.map((a) => a.name).join(' + ')}`;
+      activeStrategyBadge.style.color = '#34d399';
+    }
+  }
+
   // 1. Initialize Vela Chart
-  currentSource = sourceSelect?.value || 'hyperliquid';
-  currentSymbol = symbolSelect?.value || 'BTC';
+  if (sourceSelect) sourceSelect.value = currentSource;
+  if (symbolSelect) {
+    let opt = Array.from(symbolSelect.options).find((o) => o.value === currentSymbol);
+    if (!opt) {
+      opt = new Option(currentSymbol, currentSymbol);
+      symbolSelect.add(opt);
+    }
+    symbolSelect.value = currentSymbol;
+  }
+  if (timeframeSelect && initialMemory.selectedMarket?.timeframe) {
+    timeframeSelect.value = initialMemory.selectedMarket.timeframe;
+  }
   const initialTimeframe = timeframeSelect?.value || '1h';
+  if (currentSymbolDisplay) {
+    currentSymbolDisplay.textContent = currentPairName;
+  }
+  if (currentSourceBadge) {
+    if (currentSource === 'hyperliquid') {
+      currentSourceBadge.textContent = 'HL';
+      currentSourceBadge.className = 'source-mini-badge hl';
+    } else if (currentSource === 'binance') {
+      currentSourceBadge.textContent = 'BINANCE';
+      currentSourceBadge.className = 'source-mini-badge bi';
+    } else {
+      currentSourceBadge.textContent = 'ARKISTO';
+      currentSourceBadge.className = 'source-mini-badge';
+    }
+  }
   const chartManager = new VelaChartManager(chartContainer);
 
   try {
@@ -195,10 +236,69 @@ document.addEventListener('DOMContentLoaded', () => {
     appendLog(`[Virhe] Vela-kaavion alustus epäonnistui: ${err}`);
   }
 
-  // Multi-indicator active bar listener
+  // Restore saved active indicators from memory onto chart
+  if (initialMemory.activeIndicators && initialMemory.activeIndicators.length > 0) {
+    appendLog(`[Muisti] Palautetaan edellisen istunnon ${initialMemory.activeIndicators.length} indikaattoria kaaviolle...`);
+    initialMemory.activeIndicators.forEach((savedInd) => {
+      chartManager.injectIndicator(savedInd.code, savedInd.name).then((res) => {
+        if (res.success) {
+          appendLog(`[Muisti] Palautettu indikaattori "${savedInd.name}".`);
+          if (!savedInd.visible) {
+            chartManager.toggleIndicatorVisibility(savedInd.id);
+          }
+        }
+      });
+    });
+  }
+
+  // Restore previous backtest results & analysis
+  if (initialMemory.lastBacktest?.metrics) {
+    updateMetrics(initialMemory.lastBacktest.metrics);
+  }
+  if (initialMemory.lastBacktest?.summary && agentSummary) {
+    agentSummary.innerHTML = formatMarkdownText(initialMemory.lastBacktest.summary);
+  }
+  if (initialMemory.lastAnalysis?.text) {
+    currentAnalysisText = initialMemory.lastAnalysis.text;
+    if (chartAnalysisOutput) {
+      chartAnalysisOutput.innerHTML = formatMarkdownText(initialMemory.lastAnalysis.text);
+    }
+    if (chartAnalysisCard) {
+      chartAnalysisCard.style.display = 'block';
+    }
+    if (analysisBiasBadge) {
+      const b = (initialMemory.lastAnalysis.bias || '').toUpperCase();
+      analysisBiasBadge.className = 'analysis-badge';
+      if (b === 'BUY' || b.includes('OSTO')) {
+        analysisBiasBadge.classList.add('badge-buy');
+        analysisBiasBadge.textContent = '🟢 OSTO';
+      } else if (b === 'SELL' || b.includes('MYYNTI')) {
+        analysisBiasBadge.classList.add('badge-sell');
+        analysisBiasBadge.textContent = '🔴 MYYNTI';
+      } else {
+        analysisBiasBadge.classList.add('badge-neutral');
+        analysisBiasBadge.textContent = '🟡 NEUTRAALI';
+      }
+    }
+    if (analysisTimestamp && initialMemory.lastAnalysis.timestamp) {
+      analysisTimestamp.textContent = new Date(initialMemory.lastAnalysis.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+
+  // Multi-indicator active bar listener & memory persistence
   chartManager.onActiveIndicatorsChange = (indicators: ActiveIndicatorItem[]) => {
     renderActiveIndicatorsBar(indicators);
+    updateActiveStrategyBadge();
+    const toSave: SavedActiveIndicator[] = indicators.map((ind) => ({
+      id: ind.id,
+      name: ind.name,
+      code: ind.code,
+      visible: ind.visible,
+    }));
+    userMemory.setActiveIndicators(toSave);
   };
+
+  updateActiveStrategyBadge();
 
   function renderActiveIndicatorsBar(indicators: ActiveIndicatorItem[]) {
     if (!activeIndicatorsList) return;
@@ -258,7 +358,16 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   bridgeClient.onMetrics = (metrics: BacktestMetrics) => {
+    lastBacktestMetrics = metrics;
     updateMetrics(metrics);
+    userMemory.setLastBacktest({
+      symbol: currentSymbol,
+      timeframe: timeframeSelect?.value || '1h',
+      source: currentSource,
+      metrics,
+      summary: lastBacktestSummary,
+      timestamp: Date.now(),
+    });
   };
 
   bridgeClient.onRenderIndicator = async (name: string, code: string) => {
@@ -280,11 +389,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  let currentAnalysisText = '';
-
   bridgeClient.onSummary = (text: string) => {
+    lastBacktestSummary = text;
     if (agentSummary) {
       agentSummary.innerHTML = formatMarkdownText(text);
+    }
+    if (lastBacktestMetrics) {
+      userMemory.setLastBacktest({
+        symbol: currentSymbol,
+        timeframe: timeframeSelect?.value || '1h',
+        source: currentSource,
+        metrics: lastBacktestMetrics,
+        summary: text,
+        timestamp: Date.now(),
+      });
     }
   };
 
@@ -327,6 +445,13 @@ document.addEventListener('DOMContentLoaded', () => {
       analysisTimestamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    userMemory.setLastAnalysis({
+      text: analysis.text,
+      bias: analysis.bias,
+      symbol: currentSymbol,
+      timestamp: Date.now(),
+    });
+
     appendLog('[Kuvaaja-analyysi] Tekninen tilannearvio valmistunut!');
   };
 
@@ -366,6 +491,13 @@ document.addEventListener('DOMContentLoaded', () => {
     appendLog(`[Silta] ${status}`);
     if (connected) {
       loadSymbols();
+      userMemory.syncFromBackend().then((remote) => {
+        if (remote && remote.favoriteKeys && remote.favoriteKeys.length > 0) {
+          favoriteKeys = new Set(remote.favoriteKeys);
+          renderFavoritesBar();
+          renderSymbolGridList();
+        }
+      }).catch(() => {});
     }
   };
 
@@ -418,6 +550,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     appendLog(`[Markkina] Vaihdetaan markkinapari: ${currentSource.toUpperCase()}:${currentSymbol} (${tf})`);
     chartManager.setMarket(currentSymbol, tf, currentSource);
+    userMemory.setMarket(currentSymbol, currentSource, tf, currentPairName);
     renderFavoritesBar();
   }
 
@@ -580,6 +713,18 @@ document.addEventListener('DOMContentLoaded', () => {
   function handleAskChart(questionText?: string) {
     const q = questionText || promptInput.value.trim() || 'Mikä on tämänhetkinen tilanne? Onko osto vai myynti?';
     promptInput.value = q;
+
+    // Natural Language Intent Routing: Detect backtest request in chat prompt
+    const lowerQ = q.toLowerCase();
+    const isBacktestIntent = lowerQ.includes('backtest') || lowerQ.includes('testaa') || lowerQ.includes('simuloi');
+    if (isBacktestIntent && (lowerQ.includes('aja') || lowerQ.includes('tee') || lowerQ.includes('suorita') || lowerQ.startsWith('backtest') || lowerQ.includes('backtesti'))) {
+      appendLog(`[Pyyntö] Tunnistettiin backtest-pyyntö: "${q}". Käynnistetään kvantitatiivinen backtest...`);
+      if (btnRunBacktest) {
+        btnRunBacktest.click();
+        return;
+      }
+    }
+
     const model = modelSelect.value;
     const mode = modeSelect ? modeSelect.value : 'auto';
     const snapshot = chartManager.getChartContextSnapshot();
@@ -698,6 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const tf = timeframeSelect.value;
     appendLog(`[Aikajänne] Vaihdetaan aikajänne: ${tf} (${currentSource.toUpperCase()}:${currentSymbol})`);
     chartManager.setMarket(currentSymbol, tf, currentSource);
+    userMemory.setMarket(currentSymbol, currentSource, tf, currentPairName);
   });
 
   // Clear terminal
@@ -940,14 +1086,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // On-demand Backtest button
   if (btnRunBacktest) {
-    btnRunBacktest.addEventListener('click', () => {
+    btnRunBacktest.addEventListener('click', async () => {
       btnRunBacktest.disabled = true;
       btnRunBacktest.textContent = 'Lasketaan...';
       const snapshot = chartManager.getChartContextSnapshot();
-      appendLog(`[Backtest] Suoritetaan kvantitatiivinen backtest kohteelle ${currentSymbol} (${currentSource.toUpperCase()}, ${timeframeSelect.value})...`);
+      const activeCount = snapshot.activeIndicators?.length || 0;
+      const strategyDesc = activeCount === 0
+        ? 'EMA 20/50 Trend Cross (Oletus)'
+        : activeCount === 1
+          ? snapshot.activeIndicators[0].name
+          : `Monen indikaattorin konfluenssi (${activeCount} kpl: ${snapshot.activeIndicators.map((i: any) => i.name).join(', ')})`;
+
+      appendLog(`[Backtest] Suoritetaan kvantitatiivinen backtest kohteelle ${currentSymbol} (${currentSource.toUpperCase()}, ${timeframeSelect.value}). Strategia: ${strategyDesc}`);
+
+      const metricsEl = document.getElementById('metrics-section');
+      if (metricsEl) {
+        metricsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
 
       if (agentSummary) {
-        agentSummary.innerHTML = `<em>Lasketaan kvantitatiivista backtestiä 500 kynttilälle...</em>`;
+        agentSummary.innerHTML = `<em>Lasketaan kvantitatiivista backtestiä (${strategyDesc}) 500 kynttilälle...</em>`;
       }
 
       if (backtestWatchdog) clearTimeout(backtestWatchdog);
@@ -958,7 +1116,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }, 15000);
 
-      bridgeClient.runBacktest(currentSymbol, timeframeSelect.value, currentSource, undefined, snapshot.activeIndicators);
+      try {
+        const res = await bridgeClient.runBacktest(currentSymbol, timeframeSelect.value, currentSource, undefined, snapshot.activeIndicators);
+        if (res) {
+          resetActionButtons();
+        }
+      } catch (err) {
+        resetActionButtons();
+        appendLog(`[Backtest-virhe] ${err}`);
+      }
     });
   }
 

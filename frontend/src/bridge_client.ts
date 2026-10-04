@@ -212,23 +212,14 @@ export class BridgeClient {
     return true;
   }
 
-  public runBacktest(
+  public async runBacktest(
     symbol: string = 'BTC',
     timeframe: string = '1h',
     source: string = 'hyperliquid',
     rules?: any,
     activeIndicators?: any[]
-  ): boolean {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      if (this.onLog) {
-        this.onLog('[Virhe] Siltayhteys ei ole aktiivinen. Yritetään yhdistää uudelleen...');
-      }
-      this.connect();
-      return false;
-    }
-
+  ): Promise<boolean> {
     const payload = {
-      type: 'run_backtest',
       symbol,
       timeframe,
       source,
@@ -236,7 +227,51 @@ export class BridgeClient {
       activeIndicators,
     };
 
-    this.ws.send(JSON.stringify(payload));
+    // 1. Send WebSocket message if connected for real-time log streaming
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type: 'run_backtest', ...payload }));
+      } catch (_) {}
+    }
+
+    // 2. Execute via direct, drop-proof HTTP POST /api/backtest
+    try {
+      const res = await fetch(`${this.getHttpBaseUrl()}/api/backtest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'ok') {
+          if (this.onMetrics && data.metrics) {
+            this.onMetrics(data.metrics as BacktestMetrics);
+          }
+          if (this.onSummary && data.summary) {
+            this.onSummary(data.summary);
+          }
+          if (this.onDone) {
+            this.onDone();
+          }
+          return true;
+        } else if (data.status === 'error' && data.error) {
+          if (this.onLog) {
+            this.onLog(`[Backtest Virhe] ${data.error}`);
+          }
+          if (this.onSummary && data.summary) {
+            this.onSummary(data.summary);
+          }
+          if (this.onDone) {
+            this.onDone();
+          }
+          return false;
+        }
+      }
+    } catch (e) {
+      console.warn('[BridgeClient] Direct HTTP backtest failed, relying on WebSocket:', e);
+    }
+
     return true;
   }
 

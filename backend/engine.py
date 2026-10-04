@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
+import re
 import numpy as np
 import pandas as pd
 
@@ -135,8 +136,12 @@ def calculate_market_context(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Execute deterministic quantitative backtest over candle history."""
+def run_quantitative_backtest_logic(
+    df: pd.DataFrame,
+    rules: Optional[Dict[str, Any]] = None,
+    active_indicators: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Execute deterministic quantitative backtest with single-indicator or multi-indicator confluence."""
     if df.empty or len(df) < 30:
         return {
             "error": "Insufficient history for backtesting (minimum 30 bars required)",
@@ -149,12 +154,8 @@ def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, 
         }
 
     rules = rules or {}
-    strategy_type = rules.get("type", "ma_crossover").lower()
-    fast_period = int(rules.get("fast_period", 20))
-    slow_period = int(rules.get("slow_period", 50))
-    rsi_period = int(rules.get("rsi_period", 14))
-    rsi_oversold = float(rules.get("oversold", 30))
-    rsi_overbought = float(rules.get("overbought", 70))
+    active_indicators = active_indicators or []
+    visible_indicators = [ind for ind in active_indicators if ind.get("visible", True)]
 
     close = df["close"].values
     high = df["high"].values
@@ -164,8 +165,108 @@ def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, 
     # Compute signals
     buy_signals = np.zeros(n, dtype=bool)
     sell_signals = np.zeros(n, dtype=bool)
+    strategy_type = rules.get("type", "").lower()
+    strategy_display_name = ""
+    note_details = ""
 
+    # Multi-indicator confluence detection if active indicators are passed
+    if visible_indicators and not strategy_type:
+        ind_names = [i.get("name", "Indikaattori") for i in visible_indicators]
+        codes_text = " ".join([i.get("code", "") for i in visible_indicators]).lower()
+        # Clean compiler directives so 'version' doesn't match 'rsi'
+        clean_text = re.sub(r'//@[^\n]*', ' ', codes_text)
+        clean_text = re.sub(r'//[^\n]*', ' ', clean_text)
+        clean_names = " ".join(ind_names).lower()
+        combined_meta = clean_text + " " + clean_names
+
+        has_rsi = bool(re.search(r'\brsi\b|ta\.rsi', combined_meta))
+        has_breakout = bool(re.search(r'\b(breakout|donchian|keltner|kc)\b', combined_meta))
+        has_supertrend = bool(re.search(r'\bsupertrend\b', combined_meta))
+        has_ma = bool(re.search(r'\b(sma|ema|moving|keskiarvo|ma)\b|ta\.(sma|ema)', combined_meta))
+        has_crossover = bool(re.search(r'\b(crossover|crossunder|risteys|risteytys)\b|ta\.(crossover|crossunder)', combined_meta))
+
+        # Check if 2 or more distinct indicator types are combined
+        distinct_types_count = sum([has_rsi, has_breakout or has_supertrend, has_ma])
+
+        if len(visible_indicators) > 1 or distinct_types_count > 1:
+            # Multi-indicator Confluence Strategy
+            strategy_type = "multi_confluence"
+            strategy_display_name = f"Konfluenssi: {' + '.join(ind_names[:3])}" + (f" (+{len(ind_names)-3} muuta)" if len(ind_names) > 3 else "")
+
+            # 1. Trend component
+            trend_bull = np.zeros(n, dtype=bool)
+            trend_bear = np.zeros(n, dtype=bool)
+            if has_crossover or "slow" in combined_meta:
+                ema_fast = df["close"].ewm(span=20, adjust=False).mean().values
+                ema_slow = df["close"].ewm(span=50, adjust=False).mean().values
+                trend_bull = ema_fast > ema_slow
+                trend_bear = ema_fast < ema_slow
+            else:
+                ema_mid = df["close"].ewm(span=20, adjust=False).mean().values
+                trend_bull = close > ema_mid
+                trend_bear = close < ema_mid
+
+            # 2. Momentum component (RSI)
+            rsi_vals = calculate_rsi(df, period=14).values
+            rsi_filter_long = (rsi_vals > 35) & (rsi_vals < 70)
+            rsi_filter_short = (rsi_vals < 65) & (rsi_vals > 30)
+
+            # 3. Volatility / Channel component
+            if has_breakout or has_supertrend:
+                highest_20 = df["high"].rolling(20, min_periods=20).max().shift(1).values
+                lowest_20 = df["low"].rolling(20, min_periods=20).min().shift(1).values
+                breakout_up = close > np.nan_to_num(highest_20, nan=0)
+                breakout_down = close < np.nan_to_num(lowest_20, nan=1e9)
+            else:
+                breakout_up = np.ones(n, dtype=bool)
+                breakout_down = np.ones(n, dtype=bool)
+
+            for i in range(1, n):
+                # Bullish confluence: Trend turns up or confirms + RSI healthy + optional breakout
+                if trend_bull[i] and not trend_bull[i - 1] and rsi_filter_long[i]:
+                    buy_signals[i] = True
+                elif rsi_vals[i - 1] <= 30 and rsi_vals[i] > 30 and trend_bull[i]:
+                    buy_signals[i] = True
+                elif breakout_up[i] and trend_bull[i] and rsi_filter_long[i]:
+                    buy_signals[i] = True
+
+                # Bearish confluence: Trend turns down or confirms + RSI drops
+                if trend_bear[i] and not trend_bear[i - 1] and rsi_filter_short[i]:
+                    sell_signals[i] = True
+                elif rsi_vals[i - 1] >= 70 and rsi_vals[i] < 70 and trend_bear[i]:
+                    sell_signals[i] = True
+                elif breakout_down[i] and trend_bear[i] and rsi_filter_short[i]:
+                    sell_signals[i] = True
+
+            note_details = f"Yhdistetty konfluenssimalli: Trendi vahvistettuna momentum- (RSI) ja volatiliteettisuodattimilla."
+
+        elif has_rsi:
+            strategy_type = "rsi"
+            strategy_display_name = ind_names[0] if ind_names else "RSI Momentum Extreme"
+        elif has_breakout or has_supertrend:
+            strategy_type = "breakout"
+            strategy_display_name = ind_names[0] if ind_names else "Donchian Breakout 20"
+        elif has_ma:
+            if has_crossover or "slow" in combined_meta or "crossover" in combined_meta:
+                strategy_type = "ma_crossover"
+                strategy_display_name = ind_names[0] if ind_names else "EMA 20/50 Crossover Trend"
+            else:
+                strategy_type = "price_cross_ma"
+                strategy_display_name = ind_names[0] if ind_names else "Price vs MA 20"
+        else:
+            strategy_type = "price_cross_ma"
+            strategy_display_name = ind_names[0] if ind_names else "Trendimalli"
+
+    if not strategy_type:
+        strategy_type = rules.get("type", "ma_crossover").lower()
+    if not strategy_display_name:
+        strategy_display_name = rules.get("strategy_name", strategy_type.upper())
+
+    # Fallback / Single strategy calculations if not handled by multi_confluence
     if strategy_type == "rsi":
+        rsi_period = int(rules.get("rsi_period", 14))
+        rsi_oversold = float(rules.get("oversold", 30))
+        rsi_overbought = float(rules.get("overbought", 70))
         rsi = calculate_rsi(df, period=rsi_period).values
         for i in range(1, n):
             if rsi[i - 1] < rsi_oversold and rsi[i] >= rsi_oversold:
@@ -193,7 +294,9 @@ def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, 
                 buy_signals[i] = True
             elif close[i - 1] >= ma[i - 1] and close[i] < ma[i]:
                 sell_signals[i] = True
-    else:  # default: ma_crossover (EMA or SMA)
+    elif strategy_type == "ma_crossover":
+        fast_period = int(rules.get("fast_period", 20))
+        slow_period = int(rules.get("slow_period", 50))
         ma_mode = rules.get("ma_mode", "ema").lower()
         if ma_mode == "sma":
             fast_ma = df["close"].rolling(fast_period, min_periods=fast_period).mean().values
@@ -210,34 +313,50 @@ def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, 
             elif fast_ma[i - 1] >= slow_ma[i - 1] and fast_ma[i] < slow_ma[i]:
                 sell_signals[i] = True
 
-    # Simulate position trades
-    position = 0  # 0: flat, 1: long
+    # Simulate position trades with Long & Short execution
+    position = 0  # 0: flat, 1: long, -1: short
     entry_price = 0.0
     trade_returns: List[float] = []
     equity_curve: List[float] = [1.0]
 
     for i in range(n):
         current_p = close[i]
-        if position == 0 and buy_signals[i]:
-            position = 1
-            entry_price = current_p
+        if position == 0:
+            if buy_signals[i]:
+                position = 1
+                entry_price = current_p
+            elif sell_signals[i]:
+                position = -1
+                entry_price = current_p
         elif position == 1 and sell_signals[i]:
             ret = (current_p - entry_price) / entry_price
             trade_returns.append(ret)
             equity_curve.append(equity_curve[-1] * (1.0 + ret))
-            position = 0
-            entry_price = 0.0
+            # Reverse into short position
+            position = -1
+            entry_price = current_p
+        elif position == -1 and buy_signals[i]:
+            ret = (entry_price - current_p) / entry_price
+            trade_returns.append(ret)
+            equity_curve.append(equity_curve[-1] * (1.0 + ret))
+            # Reverse into long position
+            position = 1
+            entry_price = current_p
 
     # Close open position at end
     if position == 1 and entry_price > 0:
         ret = (close[-1] - entry_price) / entry_price
         trade_returns.append(ret)
         equity_curve.append(equity_curve[-1] * (1.0 + ret))
+    elif position == -1 and entry_price > 0:
+        ret = (entry_price - close[-1]) / entry_price
+        trade_returns.append(ret)
+        equity_curve.append(equity_curve[-1] * (1.0 + ret))
 
     trades_count = len(trade_returns)
     if trades_count == 0:
         return {
-            "strategy": strategy_type,
+            "strategy": strategy_display_name or strategy_type,
             "trades_count": 0,
             "win_rate": 0.0,
             "winning_trades": 0,
@@ -246,7 +365,7 @@ def run_quantitative_backtest_logic(df: pd.DataFrame, rules: Optional[Dict[str, 
             "max_drawdown_pct": 0.0,
             "profit_factor": 0.0,
             "total_return_pct": 0.0,
-            "summary": f"Strategia '{strategy_type}' ei tuottanut yhtään täyttynyttä kauppaa valitussa aikajänteessä.",
+            "summary": f"Strategia '{strategy_display_name or strategy_type}' ei tuottanut yhtään täyttynyttä kauppaa valitussa aikajänteessä.",
         }
 
     wins = [r for r in trade_returns if r > 0]

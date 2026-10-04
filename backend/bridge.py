@@ -34,6 +34,7 @@ logger = logging.getLogger("backend.bridge")
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "system_prompt.txt")
 MCP_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "mcp_config.json")
 INDICATORS_FILE = os.path.join(os.path.dirname(__file__), "indicators", "saved_indicators.json")
+USER_STATE_FILE = os.path.join(os.path.dirname(__file__), "user_state.json")
 
 
 def _get_saved_indicators() -> List[Dict[str, Any]]:
@@ -51,6 +52,24 @@ def _save_indicators(items: List[Dict[str, Any]]):
     os.makedirs(os.path.dirname(INDICATORS_FILE), exist_ok=True)
     with open(INDICATORS_FILE, "w", encoding="utf-8") as f:
         json.dump(items, f, indent=2, ensure_ascii=False)
+
+
+def _get_user_state() -> Dict[str, Any]:
+    if os.path.exists(USER_STATE_FILE):
+        try:
+            with open(USER_STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error("Error reading user_state.json: %s", e)
+    return {}
+
+
+def _save_user_state(state: Dict[str, Any]) -> None:
+    try:
+        with open(USER_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error("Error writing user_state.json: %s", e)
 
 
 class BridgeServer:
@@ -387,6 +406,86 @@ class BridgeServer:
         await self.send_to(ws, {"type": "chart_analysis", "text": analysis_text, "bias": bias_tag})
         await self.send_to(ws, {"type": "done"})
 
+    def execute_backtest_core(
+        self,
+        symbol: str,
+        timeframe: str,
+        source: str = "hyperliquid",
+        rules: Optional[Dict[str, Any]] = None,
+        active_indicators: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Execute deterministic quantitative backtest with single or multi-indicator confluence."""
+        symbol = normalize_symbol(symbol)
+        timeframe = normalize_interval(timeframe)
+        source = source.lower()
+        active_indicators = active_indicators or []
+        rules = rules or {}
+
+        df = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
+        if df.empty or len(df) < 30:
+            return {
+                "status": "error",
+                "error": f"Ei tarpeeksi kynttilähistoriaa ({len(df)} kpl) kohteelle {symbol} ({timeframe}, {source.upper()}).",
+                "metrics": {
+                    "strategy": "Ei dataa",
+                    "trades_count": 0,
+                    "win_rate": 0.0,
+                    "avg_return_pct": 0.0,
+                    "max_drawdown_pct": 0.0,
+                    "profit_factor": 0.0,
+                    "summary": "Ei tarpeeksi kynttilöitä.",
+                },
+                "summary": f"⚠️ **Ei tarpeeksi kynttilähistoriaa**: Kohteelle {symbol} ({timeframe}) ei löytynyt vähintään 30 kynttilää.",
+            }
+
+        # Run quantitative engine logic with multi-indicator confluence support
+        metrics = run_quantitative_backtest_logic(df, rules, active_indicators)
+        metrics["symbol"] = symbol
+        metrics["timeframe"] = timeframe
+        metrics["source"] = source
+        strat_name = metrics.get("strategy") or "Kvantitatiivinen strategia"
+
+        win_rate = metrics.get("win_rate", 0.0)
+        profit_factor = metrics.get("profit_factor", 0.0)
+        trades_count = metrics.get("trades_count", 0)
+        winning_trades = metrics.get("winning_trades", 0)
+        losing_trades = metrics.get("losing_trades", 0)
+        avg_ret = metrics.get("avg_return_pct", 0.0)
+        tot_ret = metrics.get("total_return_pct", 0.0)
+        max_dd = metrics.get("max_drawdown_pct", 0.0)
+
+        # Build clean markdown summary
+        if trades_count == 0:
+            summary_md = (
+                f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
+                f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
+                f"- **Kauppojen määrä:** **0 kauppaa**\n"
+                f"- **Voittoprosentti:** 0.0%\n\n"
+                f"⚠️ **Miksi kauppoja ei syntynyt (0 kauppaa)?**\n"
+                f"Valittu indikaattori tai yhdistelmä ei tuottanut yhtään täyttynyttä signaalia 500 kynttilän jaksolla.\n\n"
+                f"💡 **Vinkki:** Voit valita valmiin signaaleja sisältävän indikaattorin kirjastosta (esim. **EMA 20/50 Crossover Trend** tai **SuperTrend**)."
+            )
+        else:
+            summary_md = (
+                f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
+                f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
+                f"- **Historiadata:** {len(df)} kynttilää\n"
+                f"- **Kauppojen määrä:** **{trades_count}** kauppaa\n"
+                f"- **Voittoprosentti (Win Rate):** **{win_rate:.1f}%** ({winning_trades} voittoa / {losing_trades} tappiota)\n"
+                f"- **Profit Factor:** **{profit_factor:.2f}**\n"
+                f"- **Suurin pudotus (Max Drawdown):** **{max_dd:.2f}%**\n"
+                f"- **Keskimääräinen tuotto per kauppa:** **{avg_ret:+.2f}%**\n"
+                f"- **Kokonaistuotto jakson aikana:** **{tot_ret:+.2f}%**\n\n"
+                f"**Objektiivinen arvio:** {metrics.get('summary', '')}"
+            )
+
+        return {
+            "status": "ok",
+            "strategy": strat_name,
+            "metrics": metrics,
+            "summary": summary_md,
+        }
+
     async def handle_direct_backtest(
         self,
         ws: web.WebSocketResponse,
@@ -396,140 +495,22 @@ class BridgeServer:
         rules: Optional[Dict[str, Any]] = None,
         active_indicators: Optional[List[Dict[str, Any]]] = None,
     ):
-        """Execute on-demand deterministic quantitative backtest for the active chart."""
+        """Execute on-demand deterministic quantitative backtest for the active chart via WebSocket."""
         try:
-            symbol = normalize_symbol(symbol)
-            timeframe = normalize_interval(timeframe)
-            source = source.lower()
-            active_indicators = active_indicators or []
-            rules = rules or {}
-
-            # Analyze active indicators by name and code
-            active_names = [i.get("name", "") for i in active_indicators if i.get("visible", True)]
-            active_codes = [i.get("code", "") for i in active_indicators if i.get("visible", True)]
-            combined_text = (" ".join(active_names) + " " + " ".join(active_codes)).lower()
-
-            # Clean comments and compiler directives like //@version=5 so 'version' doesn't match 'rsi'
-            clean_text = re.sub(r'//@[^\n]*', ' ', combined_text)
-            clean_text = re.sub(r'//[^\n]*', ' ', clean_text)
-            clean_text = re.sub(r'/\*[\s\S]*?\*/', ' ', clean_text)
-
-            has_explicit_signals = any(
-                s in clean_text for s in (
-                    "plotshape", "crossover", "crossunder", "bull_cross", "bear_cross",
-                    "strategy.entry", "buy_signal", "sell_signal", "shape.triangle"
-                )
-            )
-
-            is_rsi = bool(re.search(r'\brsi\b|ta\.rsi', clean_text))
-            is_breakout = bool(re.search(r'\b(breakout|donchian|keltner|kc)\b', clean_text))
-            is_supertrend = bool(re.search(r'\bsupertrend\b', clean_text))
-            is_crossover = bool(re.search(r'\b(crossover|crossunder|risteys|risteytys)\b|ta\.(crossover|crossunder)', clean_text))
-            is_ma = bool(re.search(r'\b(sma|ema|moving|keskiarvo|ma)\b|ta\.(sma|ema)', clean_text))
-
-            note_str = ""
-
-            if not rules.get("type"):
-                if is_rsi:
-                    rules = {"type": "rsi", "rsi_period": 14, "oversold": 30, "overbought": 70}
-                    strat_name = "RSI Momentum Extreme (30/70 -rajat)"
-                    if not has_explicit_signals:
-                        note_str = "ℹ️ *Indikaattorissa ei ole omia nuolimerkkejä. Backtest simuloitiin äärialueiden (30/70) kääntymissäännöillä.*"
-                elif is_breakout:
-                    rules = {"type": "breakout", "lookback": 20}
-                    strat_name = "Donchian / Keltner Breakout (20)"
-                    if not has_explicit_signals:
-                        note_str = "ℹ️ *Indikaattorissa ei ole omia nuolimerkkejä. Backtest simuloitiin 20 periodin kanavamurtomallilla.*"
-                elif is_supertrend:
-                    rules = {"type": "ma_crossover", "fast_period": 10, "slow_period": 30, "ma_mode": "ema"}
-                    strat_name = "Supertrend Trend-Following (10/30)"
-                elif is_ma:
-                    if is_crossover or "slow" in clean_text or "fast" in clean_text:
-                        rules = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
-                        strat_name = "EMA 20/50 Trend Crossover"
-                    else:
-                        rules = {"type": "price_cross_ma", "period": 20, "ma_mode": "ema"}
-                        strat_name = "Hinnan ja keskiarvon risteys (Price vs MA 20)"
-                        if not has_explicit_signals:
-                            note_str = "ℹ️ *Indikaattorissa ei ole omia osto/myyntimerkkejä. Backtest simuloitiin hinnan ja keskiarvon risteyksillä (osto yläpuolelle, myynti alapuolelle).* "
-                elif active_indicators:
-                    # Indicator exists, but is a pure visual/level indicator without signals
-                    rules = {"type": "price_cross_ma", "period": 20, "ma_mode": "ema"}
-                    strat_name = f"Trendimalli: {active_names[0] if active_names else 'Kaavioindikaattori'}"
-                    note_str = "ℹ️ *Valitussa indikaattorissa ei ole osto- ja myyntimerkkejä. Backtest simuloitiin 20 periodin trendimallilla.*"
-                else:
-                    rules = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
-                    strat_name = "EMA 20/50 Trend Crossover (Benchmark)"
-                    note_str = "ℹ️ *Kaaviolla ei ole aktiivisia indikaattoreita. Backtest suoritettiin markkinan 20/50 EMA -vertailumallilla.*"
-            else:
-                strat_name = rules.get("type", "Mukautettu strategia").upper()
-
             await self.send_to(ws, {
                 "type": "log",
-                "message": f"[Backtest] Käynnistetään kvantitatiivinen backtest: {symbol} ({timeframe}, {source.upper()}) | Strategia: {strat_name}...",
+                "message": f"[Backtest] Käynnistetään kvantitatiivinen backtest: {symbol} ({timeframe}, {source.upper()})...",
             })
 
-            df = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
-            if df.empty or len(df) < 30:
-                await self.send_to(ws, {
-                    "type": "log",
-                    "message": f"[Backtest] Varoitus: Ei tarpeeksi kynttilähistoriaa ({len(df)} kpl) laskentaan.",
-                })
-                await self.send_to(ws, {
-                    "type": "summary",
-                    "text": "⚠️ **Ei tarpeeksi kynttilähistoriaa**: Kohteelle ei löytynyt vähintään 30 kynttilää backtestaukseen.",
-                })
-                return
-
-            metrics = run_quantitative_backtest_logic(df, rules)
-            metrics["symbol"] = symbol
-            metrics["timeframe"] = timeframe
-            metrics["source"] = source
-            metrics["strategy"] = strat_name
+            res = self.execute_backtest_core(symbol, timeframe, source, rules, active_indicators)
+            metrics = res["metrics"]
+            summary_md = res["summary"]
 
             await self.send_to(ws, {"type": "metrics", "data": metrics})
-
-            win_rate = metrics.get("win_rate", 0.0)
-            profit_factor = metrics.get("profit_factor", 0.0)
-            trades_count = metrics.get("trades_count", 0)
-            winning_trades = metrics.get("winning_trades", 0)
-            losing_trades = metrics.get("losing_trades", 0)
-            avg_ret = metrics.get("avg_return_pct", 0.0)
-            tot_ret = metrics.get("total_return_pct", 0.0)
-            max_dd = metrics.get("max_drawdown_pct", 0.0)
-
-            if trades_count == 0:
-                summary_md = (
-                    f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
-                    f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
-                    f"- **Kauppojen määrä:** **0 kauppaa**\n"
-                    f"- **Voittoprosentti:** 0.0%\n\n"
-                    f"⚠️ **Miksi kauppoja ei syntynyt (0 kauppaa)?**\n"
-                    f"Valittu indikaattori ei tuottanut yhtään täyttynyttä osto- ja myyntisignaalia 500 kynttilän jaksolla.\n\n"
-                    f"{note_str}\n\n"
-                    f"💡 **Ratkaisu:** Backtest vaatii selkeät laukaisuehdot (*milloin ostetaan*, *milloin myydään*). "
-                    f"Voit valita valmiin signaaleja sisältävän indikaattorin kirjastosta (esim. **EMA 20/50 Crossover** tai **RSI Extreme**)."
-                )
-            else:
-                note_part = f"\n\n{note_str}" if note_str else ""
-                summary_md = (
-                    f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
-                    f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
-                    f"- **Historiadata:** 500 kynttilää\n"
-                    f"- **Kauppojen määrä:** **{trades_count}** kauppaa\n"
-                    f"- **Voittoprosentti (Win Rate):** **{win_rate:.1f}%** ({winning_trades} voittoa / {losing_trades} tappiota)\n"
-                    f"- **Profit Factor:** **{profit_factor:.2f}**\n"
-                    f"- **Suurin pudotus (Max Drawdown):** **{max_dd:.2f}%**\n"
-                    f"- **Keskimääräinen tuotto per kauppa:** **{avg_ret:+.2f}%**\n"
-                    f"- **Kokonaistuotto jakson aikana:** **{tot_ret:+.2f}%**\n\n"
-                    f"**Objektiivinen arvio:** {metrics.get('summary', '')}"
-                    f"{note_part}"
-                )
-
             await self.send_to(ws, {"type": "summary", "text": summary_md})
             await self.send_to(ws, {
                 "type": "log",
-                "message": f"[Backtest Valmis] Kaupat: {trades_count} | Voittoprosentti: {win_rate:.1f}% | Profit Factor: {profit_factor:.2f}",
+                "message": f"[Backtest Valmis] Kaupat: {metrics.get('trades_count', 0)} | Voittoprosentti: {metrics.get('win_rate', 0.0):.1f}% | Profit Factor: {metrics.get('profit_factor', 0.0):.2f}",
             })
         except Exception as e:
             logger.error("Error in handle_direct_backtest: %s", e)
@@ -975,6 +956,37 @@ class BridgeServer:
             "free_resources": FREE_EXCHANGE_RESOURCES,
         })
 
+    async def handle_api_backtest(self, request: web.Request) -> web.Response:
+        """HTTP POST endpoint for fast, drop-proof deterministic backtests."""
+        try:
+            data = await request.json()
+            symbol = data.get("symbol", "BTC")
+            timeframe = data.get("timeframe", "1h")
+            source = data.get("source", "hyperliquid")
+            rules = data.get("rules") or {}
+            active_indicators = data.get("activeIndicators", [])
+
+            res = self.execute_backtest_core(symbol, timeframe, source, rules, active_indicators)
+            return web.json_response(res)
+        except Exception as e:
+            logger.error("API backtest failed: %s", e)
+            return web.json_response({"status": "error", "error": str(e)}, status=500)
+
+    async def handle_get_user_state(self, request: web.Request) -> web.Response:
+        """HTTP GET endpoint for single-user workspace memory."""
+        state = _get_user_state()
+        return web.json_response({"status": "ok", "state": state})
+
+    async def handle_save_user_state(self, request: web.Request) -> web.Response:
+        """HTTP POST endpoint for single-user workspace memory."""
+        try:
+            data = await request.json()
+            _save_user_state(data)
+            return web.json_response({"status": "ok"})
+        except Exception as e:
+            logger.error("Failed to save user state: %s", e)
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_health(self, request: web.Request) -> web.Response:
         return web.json_response({
             "status": "healthy",
@@ -1005,6 +1017,9 @@ def create_app() -> web.Application:
     # Routes
     app.router.add_get("/", server.handle_ws)
     app.router.add_get("/ws", server.handle_ws)
+    app.router.add_post("/api/backtest", server.handle_api_backtest)
+    app.router.add_get("/api/user-state", server.handle_get_user_state)
+    app.router.add_post("/api/user-state", server.handle_save_user_state)
     app.router.add_post("/api/push_indicator", server.handle_push_indicator)
     app.router.add_post("/api/push_metrics", server.handle_push_metrics)
     app.router.add_get("/api/candles", server.handle_get_candles)
