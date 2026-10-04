@@ -160,6 +160,17 @@ class BridgeServer:
                                 self.handle_analyze_chart(ws, question, snapshot, model, effort, mode)
                             )
 
+                        elif msg_type == "run_backtest":
+                            symbol = normalize_symbol(data.get("symbol", "BTC"))
+                            timeframe = normalize_interval(data.get("timeframe", "1h"))
+                            source = data.get("source", "hyperliquid").lower()
+                            rules = data.get("rules") or {}
+                            active_indicators = data.get("activeIndicators", [])
+
+                            asyncio.create_task(
+                                self.handle_direct_backtest(ws, symbol, timeframe, source, rules, active_indicators)
+                            )
+
                         elif msg_type == "ping":
                             await self.send_to(ws, {"type": "pong"})
                     except Exception as e:
@@ -374,6 +385,93 @@ class BridgeServer:
         )
 
         await self.send_to(ws, {"type": "chart_analysis", "text": analysis_text, "bias": bias_tag})
+        await self.send_to(ws, {"type": "done"})
+
+    async def handle_direct_backtest(
+        self,
+        ws: web.WebSocketResponse,
+        symbol: str,
+        timeframe: str,
+        source: str = "hyperliquid",
+        rules: Optional[Dict[str, Any]] = None,
+        active_indicators: Optional[List[Dict[str, Any]]] = None,
+    ):
+        """Execute on-demand deterministic quantitative backtest for the active chart."""
+        symbol = normalize_symbol(symbol)
+        timeframe = normalize_interval(timeframe)
+        source = source.lower()
+        active_indicators = active_indicators or []
+        rules = rules or {}
+
+        # Infer strategy type if not explicitly supplied
+        ind_names = [i.get("name", "") for i in active_indicators if i.get("visible", True)]
+        combined_text = " ".join(ind_names).lower()
+
+        if not rules.get("type"):
+            if "rsi" in combined_text:
+                rules = {"type": "rsi", "rsi_period": 14, "oversold": 30, "overbought": 70}
+                strat_name = "RSI Momentum Extreme (14, 30/70)"
+            elif "breakout" in combined_text or "donchian" in combined_text:
+                rules = {"type": "breakout", "lookback": 20}
+                strat_name = "Donchian Breakout Channel (20)"
+            elif "supertrend" in combined_text:
+                rules = {"type": "ma_crossover", "fast_period": 10, "slow_period": 30, "ma_mode": "ema"}
+                strat_name = "Supertrend / Trend-Following (10/30)"
+            else:
+                rules = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50, "ma_mode": "ema"}
+                strat_name = "EMA 20/50 Trend Crossover"
+        else:
+            strat_name = rules.get("type", "Mukautettu strategia").upper()
+
+        await self.send_to(ws, {
+            "type": "log",
+            "message": f"[Backtest] Käynnistetään kvantitatiivinen backtest: {symbol} ({timeframe}, {source.upper()}) | Strategia: {strat_name}...",
+        })
+
+        df = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
+        if df.empty or len(df) < 30:
+            await self.send_to(ws, {
+                "type": "log",
+                "message": f"[Backtest] Varoitus: Ei tarpeeksi kynttilähistoriaa ({len(df)} kpl) laskentaan.",
+            })
+            await self.send_to(ws, {"type": "done"})
+            return
+
+        metrics = run_quantitative_backtest_logic(df, rules)
+        metrics["symbol"] = symbol
+        metrics["timeframe"] = timeframe
+        metrics["source"] = source
+        metrics["strategy"] = strat_name
+
+        await self.send_to(ws, {"type": "metrics", "data": metrics})
+
+        win_rate = metrics.get("win_rate", 0.0)
+        profit_factor = metrics.get("profit_factor", 0.0)
+        trades_count = metrics.get("trades_count", 0)
+        winning_trades = metrics.get("winning_trades", 0)
+        losing_trades = metrics.get("losing_trades", 0)
+        avg_ret = metrics.get("avg_return_pct", 0.0)
+        tot_ret = metrics.get("total_return_pct", 0.0)
+        max_dd = metrics.get("max_drawdown_pct", 0.0)
+
+        summary_md = (
+            f"### Kvantitatiivinen Backtest: {strat_name}\n\n"
+            f"- **Kohde & Aikajänne:** {symbol} ({timeframe} / {source.upper()})\n"
+            f"- **Historiadata:** 500 kynttilää\n"
+            f"- **Kauppojen määrä:** **{trades_count}** kauppaa\n"
+            f"- **Voittoprosentti (Win Rate):** **{win_rate:.1f}%** ({winning_trades} voittoa / {losing_trades} tappiota)\n"
+            f"- **Profit Factor:** **{profit_factor:.2f}**\n"
+            f"- **Suurin pudotus (Max Drawdown):** **{max_dd:.2f}%**\n"
+            f"- **Keskimääräinen tuotto per kauppa:** **{avg_ret:+.2f}%**\n"
+            f"- **Kokonaistuotto jakson aikana:** **{tot_ret:+.2f}%**\n\n"
+            f"**Objektiivinen arvio:** {metrics.get('summary', '')}"
+        )
+
+        await self.send_to(ws, {"type": "summary", "text": summary_md})
+        await self.send_to(ws, {
+            "type": "log",
+            "message": f"[Backtest Valmis] Kaupat: {trades_count} | Voittoprosentti: {win_rate:.1f}% | Profit Factor: {profit_factor:.2f}",
+        })
         await self.send_to(ws, {"type": "done"})
 
     async def run_fallback_agent(

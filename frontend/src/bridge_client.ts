@@ -211,6 +211,34 @@ export class BridgeClient {
     return true;
   }
 
+  public runBacktest(
+    symbol: string = 'BTC',
+    timeframe: string = '1h',
+    source: string = 'hyperliquid',
+    rules?: any,
+    activeIndicators?: any[]
+  ): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      if (this.onLog) {
+        this.onLog('[Virhe] Siltayhteys ei ole aktiivinen. Yritetään yhdistää uudelleen...');
+      }
+      this.connect();
+      return false;
+    }
+
+    const payload = {
+      type: 'run_backtest',
+      symbol,
+      timeframe,
+      source,
+      rules,
+      activeIndicators,
+    };
+
+    this.ws.send(JSON.stringify(payload));
+    return true;
+  }
+
   // REST API methods for Saved Indicators & Historical Archives
   public async getIndicators(): Promise<SavedIndicator[]> {
     try {

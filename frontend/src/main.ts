@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const agentSummary = document.getElementById('agent-summary') as HTMLElement;
   const presetChips = document.querySelectorAll('.preset-chip');
   const saveCurrentIndBtn = document.getElementById('save-current-ind-btn') as HTMLButtonElement;
+  const btnRunBacktest = document.getElementById('btn-run-backtest') as HTMLButtonElement;
 
   // Dedicated chart analysis response card elements
   const chartAnalysisCard = document.getElementById('chart-analysis-card') as HTMLElement;
@@ -328,6 +329,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnRunAiIndicator) {
       btnRunAiIndicator.disabled = false;
       btnRunAiIndicator.textContent = '🚀 Generoi indikaattori';
+    }
+    if (btnRunBacktest) {
+      btnRunBacktest.disabled = false;
+      btnRunBacktest.textContent = '▶️ Aja Backtest';
     }
   };
 
@@ -895,6 +900,22 @@ document.addEventListener('DOMContentLoaded', () => {
       if (btnSubtabManual) btnSubtabManual.click();
       if (newIndName) newIndName.value = lastInjectedName || 'Oma indikaattori';
       if (newIndCode) newIndCode.value = lastInjectedCode || '';
+    });
+  }
+
+  // On-demand Backtest button
+  if (btnRunBacktest) {
+    btnRunBacktest.addEventListener('click', () => {
+      btnRunBacktest.disabled = true;
+      btnRunBacktest.textContent = 'Lasketaan...';
+      const snapshot = chartManager.getChartContextSnapshot();
+      appendLog(`[Backtest] Suoritetaan kvantitatiivinen backtest kohteelle ${currentSymbol} (${currentSource.toUpperCase()}, ${timeframeSelect.value})...`);
+
+      if (agentSummary) {
+        agentSummary.innerHTML = `<em>Lasketaan kvantitatiivista backtestiä 500 kynttilälle...</em>`;
+      }
+
+      bridgeClient.runBacktest(currentSymbol, timeframeSelect.value, currentSource, undefined, snapshot.activeIndicators);
     });
   }
 
