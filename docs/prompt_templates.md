@@ -46,11 +46,11 @@ plotshape(bear_cross, title="Sell Signal", location=location.abovebar, color=col
 
 ## 3. FastMCP-työkalujen rajapintasäännöt
 
-1. `get_market_context(symbol: str, timeframe: str, candles: int)`
-   - Palauttaa tilastollisen yhteenvedon: tuoreet OHLCV-arvot, ATR-volatiliteetin, trendin suunnan ja volyymin jakautumisen.
+1. `get_market_context(symbol: str, timeframe: str, candles: int, source: str = "hyperliquid")`
+   - Palauttaa tilastollisen yhteenvedon: tuoreet OHLCV-arvot, ATR-volatiliteetin, trendin suunnan ja volyymin jakautumisen valitusta pörssistä (`hyperliquid` tai `binance`).
 2. `validate_pinets_syntax(script_code: str)`
    - Kääntää koodin headless-prosessissa. Palauttaa tiedon siitä, onko koodi syntaktisesti virheetöntä vai sisältääkö se virheitä (rivinumero ja virheviesti).
-3. `run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: dict)`
+3. `run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: dict, source: str = "hyperliquid")`
    - Laskee signaalien toimivuuden historiadataan Pythonissa. Palauttaa signaalien määrän, voittoprosentin, keskimääräisen tuoton ja suurimman pudotuksen (drawdown).
 4. `push_indicator_to_chart(script_code: str, indicator_name: str)`
    - Lähettää hyväksytyn ja testatun indikaattorin paikallisen sillan kautta selaimeen, jossa Vela piirtää sen välittömästi ruudulle.

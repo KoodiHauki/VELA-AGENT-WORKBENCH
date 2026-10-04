@@ -4,50 +4,63 @@
 [![Vela](https://img.shields.io/badge/Chart-Vela%20WebGL2-orange)](https://github.com/LuxAlgo/Vela)
 [![FastMCP](https://img.shields.io/badge/Backend-FastMCP-green)](https://github.com/jlowin/fastmcp)
 [![Pine Script](https://img.shields.io/badge/PineScript-v5%20PineTS-purple)](https://github.com/LuxAlgo/PineTS)
+[![Data Sources](https://img.shields.io/badge/Exchanges-Hyperliquid%20%7C%20Binance-yellow)](#datalähteet)
 
-Paikallisesti ajettava ja Tailnetin (MagicDNS) kautta saavutettava kvantitatiivinen analyysiympäristö, jossa yhdistyvät:
-- **LuxAlgo Vela (WebGL2)** -markkinakaavio suorituskykyiseen kynttilä- ja indikaattoripiirtoon.
-- **Dynaaminen Pine Script v5 / PineTS** -indikaattorien generointi ja ajo suoraan selaimessa Web Workerissa.
-- **FastMCP & Deterministinen Laskentamoottori** - markkinakonteksti, headless-koodivalidointi ja tilastollinen backtestaus ennen kaaviolle vientiä.
-- **Antigravity 2.0 / CLI** - orkestroija ja kvanttianalyytikko luonnollisen kielen kehotteille.
+**Vela Agent Workbench** on paikallisesti ajettava ja Tailnetin (MagicDNS) kautta suojatusti saavutettava kvantitatiivinen analyysi- ja kaavioympäristö. Järjestelmä yhdistää reaaliaikaisen WebGL2-markkinakaavion, dynaamisen Pine Script v5 / PineTS -suorituksen, deterministisen Python-backtestauksen sekä tekoälyagentin (Antigravity 2.0 / CLI) orkestroinnin.
 
-```
-                      +-----------------------------------+
-                      |      KÄYTTÄJÄ / MOBIILI           |
-                      |   (Tailnet / MagicDNS: 5173)      |
-                      +-----------------+-----------------+
-                                        |
-                   +--------------------+--------------------+
-                   |                                         |
-         [WebSocket / HTTP]                         [WebGL2 Canvas]
-                   |                                         |
-                   v                                         v
-        +---------------------+                   +---------------------+
-        |  Python Bridge      |                   |  LuxAlgo Vela       |
-        |  (Portti 8765)      |                   |  @luxalgo/vela      |
-        +----------+----------+                   |  @luxalgo/vela-pinets|
-                   |                              +----------^----------+
-                   |                                         |
-        +----------v----------+                              |
-        |  Antigravity CLI    |                              |
-        |  (Headless prosessi)|                              |
-        +----------+----------+                              |
-                   |                                         |
-        +----------v----------+                              |
-        |  FastMCP Server     +------------------------------+
-        |  (server.py)        |   (push_indicator_to_chart)
-        +---------------------+
+---
+
+## Arkkitehtuuri
+
+```mermaid
+flowchart TD
+    subgraph Browser ["Käyttöliittymä (Vite + Vanilla TypeScript: 5173)"]
+        UI["DOM UI: Komentopalkki, Datalähdevalitsin, Lokiterminaali, Metriikkakortit"]
+        Vela["LuxAlgo Vela Kaavio (WebGL2)"]
+        MultiFeed["MultiProviderFeed (Hyperliquid + Binance)"]
+        PineWorker["PineWorkerEngine (@luxalgo/vela-pinets)"]
+        BridgeClient["BridgeClient (WebSocket: 8765)"]
+    end
+
+    subgraph BackendHost ["Taustamoottori & FastMCP"]
+        Bridge["bridge.py (WebSocket & HTTP: 8765)"]
+        Antigravity["Antigravity CLI / agy (1.2.16)"]
+        FastMCP["FastMCP Server (server.py)"]
+        Engine["engine.py (Pandas/NumPy -laskenta)"]
+        Fetcher["data_fetcher.py (Hyperliquid & Binance REST + Välimuisti)"]
+        Validator["validator.js (Headless PineTS)"]
+    end
+
+    UI -->|1. Syötä pyyntö + valitse lähde| BridgeClient
+    BridgeClient <-->|2. WS reaaliaikalokit & metriikat| Bridge
+    Bridge -->|3. Käynnistä aliprosessi| Antigravity
+    Antigravity <-->|4. FastMCP Tool Calls| FastMCP
+    FastMCP --> Fetcher
+    FastMCP --> Engine
+    FastMCP --> Validator
+    FastMCP -->|5. push_indicator_to_chart| Bridge
+    Bridge -->|6. render_indicator| BridgeClient
+    BridgeClient --> PineWorker
+    PineWorker --> Vela
+    MultiFeed --> Vela
 ```
 
 ---
 
-## Ominaisuudet
+## Keskeiset Ominaisuudet
 
-1. **Vela WebGL2 -kaavio**: Viiveetön, erittäin suorituskykyinen kynttilärenderöinti suoralla Hyperliquid-integraatiolla.
-2. **Pine Script v5 -ajuri**: `@luxalgo/vela-pinets` suorittaa indikaattorit ja strategiat taustasäikeessä (Web Worker) hidastamatta käyttöliittymää.
-3. **Deterministinen Python-laskenta**: ATR, liukuvat keskiarvot, volyymiprofiilit, voittoprosentit, profit factor ja drawdown lasketaan suoraan historiadataan ilman kielimallin hallusinointeja.
-4. **Headless Syntaksivalidointi**: Koodi käännetään ja validoidaan headless `pinets`-moottorilla ennen kaaviolle viemistä.
-5. **Tailnet / MagicDNS -valmis**: Sovellus bindautuu kaikkiin verkkoliitäntöihin (`0.0.0.0`), ja asiakas löytää taustasillan dynaamisesti – voit ohjata analyysipöytää kännykällä Tailnetin kautta ilman porttiohjauksia.
+1. **Vela WebGL2 -kaavio**: Viiveetön, 60+ FPS kynttilä- ja indikaattorirenderöinti suoralla GPU-kiihdytyksellä.
+2. **Kaksi Datalähdettä (MultiProviderFeed)**:
+   - **Hyperliquid**: Suora WebSocket-virta ja REST-historiadata.
+   - **Binance**: Globaali `api.binance.com` ja `data-api.binance.vision` REST-kynttilädata.
+   - Vaihto lennosta käyttöliittymän pudotusvalikosta.
+3. **Pine Script v5 / PineTS Selaimessa**: `@luxalgo/vela-pinets` suorittaa indikaattorit taustasäikeessä (Web Worker) kuormittamatta käyttöliittymää.
+4. **Kaksi Suoritustilaa**:
+   - **Antigravity AI (Täysi orkestrointi)**: Antigravity CLI ajaa monivaiheisen korjaussilmukan (konteksti -> koodaus -> syntaksivalidointi -> korjaus -> backtestaus -> kaaviolle vienti).
+   - **Pika-analyysi (Välitön < 500ms)**: Paikallinen analyysimoottori laskee tilastot, generoi koodin, ajaa 500 kynttilän backtestauksen ja injektoi indikaattorin ilman LLM-viivettä.
+5. **Deterministinen Laskentamoottori**: ATR(14), liukuvat keskiarvot, trendin suunta ja voimakkuus, signaalisimulaatiot, voittoprosentti, drawdown ja profit factor lasketaan puhtaasti historiadataan ilman kielimallin harhoja.
+6. **Headless Syntaksivalidointi**: Koodi testataan taustalla ennen kaaviolle viemistä.
+7. **Puhdas Tailnet / MagicDNS -yhteensopivuus**: Bindaus `0.0.0.0` ja dynaaminen isäntäosoitteen tunnistus takaavat toimivuuden lähiverkossa ja kännykällä Tailscale-yhteyden yli ilman julkisia portteja.
 
 ---
 
@@ -59,7 +72,7 @@ VELA-AGENT-WORKBENCH/
 │   ├── server.py              # FastMCP-palvelin (4 kvanttityökalua Antigravitylle)
 │   ├── bridge.py              # WebSocket & HTTP -silta selaimen ja CLI:n välillä
 │   ├── engine.py              # Deterministinen Pandas/NumPy-analyysi ja backtest
-│   ├── data_fetcher.py        # Hyperliquid REST -historiadata ja levymuisti
+│   ├── data_fetcher.py        # Hyperliquid & Binance REST -historiadata ja levymuisti
 │   ├── validator.js           # Headless Node/PineTS -syntaksitarkistin
 │   ├── mcp_config.json        # FastMCP-asetustiedosto Antigravity CLI:lle
 │   └── requirements.txt       # Python-riippuvuudet (fastmcp, aiohttp, pandas jne.)
@@ -70,15 +83,18 @@ VELA-AGENT-WORKBENCH/
 │   ├── tsconfig.json
 │   ├── vite.config.ts         # Vite-konfiguraatio (host: 0.0.0.0, port: 5173)
 │   └── src/
-│       ├── main.ts            # DOM-tapahtumakuuntelijat ja reaaliaikainen ohjaus
-│       ├── chart.ts           # Vela-alustus ja PineTS-indikaattorien injektio
+│       ├── main.ts            # DOM-tapahtumakuuntelijat ja pörssivalitsimen ohjaus
+│       ├── chart.ts           # Vela-alustus (MultiProviderFeed) ja indikaattorien injektio
 │       ├── hyperliquid.ts     # Hyperliquid WS & REST -asiakas
-│       └── bridge_client.ts   # WS-asiakas taustasillalle
+│       └── bridge_client.ts   # WS-asiakas taustasillalle (portti 8765)
 │
 ├── config/
 │   └── system_prompt.txt      # Antigravity CLI:n kvanttianalyytikon järjestelmäkehote
 ├── docs/
-│   └── prompt_templates.md    # Kehotepohjat ja säännöt
+│   ├── architecture.md        # Yksityiskohtainen järjestelmäarkkitehtuuri ja tietovirrat
+│   ├── api_reference.md       # FastMCP-, REST- ja WebSocket-rajapintadokumentaatio
+│   ├── user_guide.md          # Käyttöohje ja Tailnet-mobiiliohjaus
+│   └── prompt_templates.md    # Kehotepohjat ja orkestrointisäännöt
 ├── tests/
 │   └── test_backend.py        # Yksikkötestit
 ├── run.bat                    # Windows Batch -käynnistin
@@ -89,19 +105,36 @@ VELA-AGENT-WORKBENCH/
 
 ## Pika-aloitus
 
-### 1. Asennus
-Varmista, että koneellasi on Python (>= 3.10) ja Node.js (>= 20).
+### 1. Esivaatimukset
+- **Python**: >= 3.10
+- **Node.js**: >= 20.x
+- **Antigravity CLI** (`agy`): v1.2.16 tai uudempi (valinnainen täyteen AI-tilaan)
+
+### 2. Riippuvuuksien asennus
 
 ```bash
-# Asenna Python-riippuvuudet
+# 1. Asenna Python-riippuvuudet
 python -m pip install -r backend/requirements.txt
 
-# Asenna Frontend-riippuvuudet
+# 2. Asenna Frontend-riippuvuudet
 npm --prefix frontend install
 ```
 
-### 2. Käynnistys
-Voit käynnistää järjestelmän yhdellä komennolla:
+### 3. FastMCP-työkalujen rekisteröinti (Antigravity CLI)
+
+Jos käytät Antigravity CLI:tä (`agy`):
+```powershell
+agy mcp add vela_quant python "$PWD\backend\server.py"
+```
+
+Varmista rekisteröinti:
+```powershell
+agy mcp list
+```
+
+### 4. Käynnistys
+
+Voit käynnistää sekä taustasillan että selainkäyttöliittymän yhdellä komennolla:
 
 **PowerShellissä:**
 ```powershell
@@ -114,29 +147,29 @@ run.bat
 ```
 
 Avaa selaimessa:
-- Paikallisesti: **`http://localhost:5173`**
-- Tailnetin kautta: **`http://<oma-magicdns-nimi>:5173`**
+- **Lokaalisti**: `http://localhost:5173`
+- **Tailnetin / MagicDNS:n kautta**: `http://<oma-laitenimi>:5173` (toimii suoraan puhelimella tai tabletilla)
 
 ---
 
 ## FastMCP-työkalut
 
-Antigravitylle tarjotaan 4 determinististä työkalua:
+Antigravity CLI:lle ja tekoälyorkestroijalle on määritelty neljä determinististä työkalua:
 
-1. `get_market_context(symbol: str, timeframe: str, candles: int = 100)`
-   - Palauttaa ATR-volatiliteetin, trendin, liukuvat keskiarvot ja volyymin.
-2. `validate_pinets_syntax(script_code: str)`
-   - Kääntää koodin headless PineTS-moottorilla ja palauttaa virheen rivinumeron ja kuvauksen.
-3. `run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: dict)`
-   - Laskee matriisilaskennalla kauppojen määrän, voittoprosentin, tuoton ja drawdownin.
-4. `push_indicator_to_chart(script_code: str, indicator_name: str)`
-   - Välittää testatun indikaattorin lokaalin sillan kautta suoraan selaimen Vela-kaaviolle.
+| Työkalu | Kuvaus | Parametrit |
+| :--- | :--- | :--- |
+| `get_market_context` | Hakee OHLCV-tilastot, ATR-volatiliteetin, trendin ja volyymin. | `symbol`, `timeframe`, `candles`, `source` |
+| `validate_pinets_syntax` | Validoi Pine Script v5 / PineTS -syntaksin headless-prosessissa. | `script_code` |
+| `run_quantitative_backtest` | Suorittaa tilastollisen backtestin 500 kynttilälle historiadataan. | `symbol`, `timeframe`, `strategy_rules`, `source` |
+| `push_indicator_to_chart` | Injektoi testatun indikaattorin suoraan aktiiviseen Vela-kaavioon. | `script_code`, `indicator_name` |
+
+Yksityiskohtainen rajapintakuvaus löytyy tiedostosta [docs/api_reference.md](docs/api_reference.md).
 
 ---
 
 ## Testien suoritus
 
-Aja Python-yksikkötestit:
+Aja taustamoottorin yksikkötestit:
 ```powershell
 python -m unittest tests/test_backend.py
 ```
@@ -146,7 +179,22 @@ Testaa headless syntaksitarkistin:
 node backend/validator.js "//@version=5`nindicator('Test')`nplot(close)"
 ```
 
-Testaa frontendin tyyppitarkistus ja käännös:
+Testaa frontendin tuotantokäännös:
 ```powershell
 npm --prefix frontend run build
 ```
+
+---
+
+## Dokumentaatio
+
+- [Arkkitehtuuri ja järjestelmäkuvaus](docs/architecture.md)
+- [API- ja FastMCP-rajapintareferenssi](docs/api_reference.md)
+- [Käyttöohje ja Tailnet-opas](docs/user_guide.md)
+- [Kehotepohjat ja säännöt](docs/prompt_templates.md)
+
+---
+
+## Lisenssi
+
+MIT License. Katso [LICENSE](LICENSE) lisätietoja varten.
