@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 # Ensure backend package and local .venv site-packages can be imported
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 for _venv_name in [".venv", "venv"]:
     _venv_path = os.path.join(_project_root, _venv_name)
     if os.path.exists(_venv_path):
@@ -136,7 +138,7 @@ def validate_pinets_syntax(script_code: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: Dict[str, Any], source: str = "hyperliquid") -> Dict[str, Any]:
+def run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: Optional[Any] = None, source: str = "hyperliquid") -> Dict[str, Any]:
     """Calculate quantitative strategy performance on historical market data.
     
     Returns trades count, win rate %, average return %, max drawdown %, and profit factor.
@@ -148,8 +150,23 @@ def run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: Dict[
         source: Exchange data source ('hyperliquid' or 'binance', default 'hyperliquid').
     """
     try:
+        # Normalize strategy_rules if passed as JSON string or omitted
+        rules_dict: Dict[str, Any] = {}
+        if strategy_rules is None:
+            rules_dict = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50}
+        elif isinstance(strategy_rules, str):
+            try:
+                parsed = json.loads(strategy_rules)
+                rules_dict = parsed if isinstance(parsed, dict) else {"type": "ma_crossover", "fast_period": 20, "slow_period": 50}
+            except Exception:
+                rules_dict = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50}
+        elif isinstance(strategy_rules, dict):
+            rules_dict = strategy_rules
+        else:
+            rules_dict = {"type": "ma_crossover", "fast_period": 20, "slow_period": 50}
+
         df = get_candles(symbol=symbol, timeframe=timeframe, bars=500, source=source)
-        results = run_quantitative_backtest_logic(df, strategy_rules)
+        results = run_quantitative_backtest_logic(df, rules_dict)
         results["symbol"] = symbol
         results["timeframe"] = timeframe
         results["source"] = source
@@ -157,8 +174,8 @@ def run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: Dict[
         # Forward metrics to bridge if available
         try:
             requests.post(f"{BRIDGE_HTTP_URL}/api/push_metrics", json=results, timeout=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Bridge push_metrics HTTP notification skipped/failed: %s", e)
 
         return results
     except Exception as e:

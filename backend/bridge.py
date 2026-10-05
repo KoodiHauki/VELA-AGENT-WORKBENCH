@@ -88,6 +88,7 @@ class BridgeServer:
         self.clients: Set[web.WebSocketResponse] = set()
         self.system_prompt: str = ""
         self.load_system_prompt()
+        self.ensure_mcp_registration()
 
     def load_system_prompt(self):
         if os.path.exists(CONFIG_PATH):
@@ -98,6 +99,25 @@ class BridgeServer:
                 "Olet kvantitatiivinen analyytikko ja Pine Script -asiantuntija. "
                 "Validoi aina koodi syntaksityökalulla ja testaa backtest-työkalulla."
             )
+
+    def find_python_executable(self) -> str:
+        """Find the best Python executable with project dependencies (.venv or sys.executable)."""
+        candidates = [
+            os.path.join(_project_root, ".venv", "bin", "python"),
+            os.path.join(_project_root, ".venv", "bin", "python3"),
+            os.path.join(_project_root, ".venv", "Scripts", "python.exe"),
+            os.path.join(_project_root, "venv", "bin", "python"),
+            os.path.join(_project_root, "venv", "bin", "python3"),
+            os.path.join(_project_root, "venv", "Scripts", "python.exe"),
+        ]
+        for c in candidates:
+            if os.path.exists(c) and (os.access(c, os.X_OK) or sys.platform.startswith("win")):
+                return os.path.abspath(c)
+
+        if sys.executable and os.path.exists(sys.executable):
+            return os.path.abspath(sys.executable)
+
+        return shutil.which("python3") or shutil.which("python") or "python"
 
     def find_antigravity_executable(self) -> Optional[str]:
         """Find the agy / antigravity executable on this system (Windows, Linux, macOS)."""
@@ -132,6 +152,96 @@ class BridgeServer:
                 return which_res
 
         return None
+
+    def build_subprocess_env(self) -> Dict[str, str]:
+        """Construct environment variables for subprocess execution of agy."""
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["BRIDGE_HTTP_URL"] = f"http://127.0.0.1:{self.port}"
+        env["PYTHONPATH"] = f"{_project_root}{os.pathsep}{os.path.join(_project_root, 'backend')}"
+
+        path_additions = [
+            os.path.expanduser("~/.local/bin"),
+            os.path.expanduser("~/.agy/bin"),
+            "/usr/local/bin",
+            "/usr/bin",
+            os.path.join(_project_root, ".venv", "bin"),
+            os.path.join(_project_root, ".venv", "Scripts"),
+            os.path.join(_project_root, "venv", "bin"),
+            os.path.join(_project_root, "venv", "Scripts"),
+        ]
+        curr_path = env.get("PATH", "")
+        for p in path_additions:
+            if os.path.exists(p) and p not in curr_path:
+                curr_path = f"{p}{os.pathsep}{curr_path}"
+        env["PATH"] = curr_path
+        return env
+
+    def ensure_mcp_registration(self):
+        """Self-healing configuration of FastMCP vela_quant server for Antigravity (Linux & Windows)."""
+        try:
+            python_bin = self.find_python_executable()
+            server_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "server.py"))
+
+            # 1. Update/write global ~/.gemini/config/mcp_config.json
+            global_config_dir = os.path.expanduser("~/.gemini/config")
+            os.makedirs(global_config_dir, exist_ok=True)
+            global_mcp_file = os.path.join(global_config_dir, "mcp_config.json")
+
+            global_data: Dict[str, Any] = {"mcpServers": {}}
+            if os.path.exists(global_mcp_file):
+                try:
+                    with open(global_mcp_file, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                        if isinstance(loaded, dict) and "mcpServers" in loaded and isinstance(loaded["mcpServers"], dict):
+                            global_data = loaded
+                except Exception as e:
+                    logger.warning("Could not read %s: %s", global_mcp_file, e)
+
+            mcp_server_def = {
+                "command": python_bin,
+                "args": [server_script],
+                "env": {
+                    "PYTHONUNBUFFERED": "1",
+                    "PYTHONPATH": f"{_project_root}{os.pathsep}{os.path.join(_project_root, 'backend')}",
+                    "BRIDGE_HTTP_URL": f"http://127.0.0.1:{self.port}",
+                },
+                "disabled": False,
+            }
+
+            global_data["mcpServers"]["vela_quant"] = mcp_server_def
+
+            with open(global_mcp_file, "w", encoding="utf-8") as f:
+                json.dump(global_data, f, indent=2, ensure_ascii=False)
+            logger.info("Synchronized global MCP config: %s (python: %s)", global_mcp_file, python_bin)
+
+            # 2. Also sync workspace backend/mcp_config.json
+            local_mcp_file = os.path.abspath(MCP_CONFIG_PATH)
+            os.makedirs(os.path.dirname(local_mcp_file), exist_ok=True)
+            with open(local_mcp_file, "w", encoding="utf-8") as f:
+                json.dump({"mcpServers": {"vela_quant": mcp_server_def}}, f, indent=2, ensure_ascii=False)
+
+            # 3. If agy CLI executable is found, invoke 'agy mcp add vela_quant ...' to sync CLI internal store
+            cli_bin = self.find_antigravity_executable()
+            if cli_bin:
+                try:
+                    import subprocess
+                    sub_env = self.build_subprocess_env()
+                    res = subprocess.run(
+                        [cli_bin, "mcp", "add", "vela_quant", python_bin, server_script],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        env=sub_env,
+                    )
+                    if res.returncode == 0:
+                        logger.info("Antigravity CLI mcp add vela_quant verified successfully.")
+                    else:
+                        logger.debug("Antigravity CLI mcp add notice: %s", (res.stderr or res.stdout).strip())
+                except Exception as e:
+                    logger.debug("CLI mcp add invocation notice: %s", e)
+        except Exception as e:
+            logger.warning("ensure_mcp_registration encountered warning: %s", e)
 
     async def broadcast(self, message: Dict[str, Any]):
         """Broadcast message to all connected browser clients."""
@@ -318,6 +428,8 @@ class BridgeServer:
             try:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
+                    cwd=_project_root,
+                    env=self.build_subprocess_env(),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -687,6 +799,8 @@ class BridgeServer:
             "message": f"[Komentopalkki] Vastaanotettu pyyntö: \"{user_prompt}\" (Pari: {symbol}, Aikaväli: {timeframe}, Lähde: {source.upper()})",
         })
 
+        self.ensure_mcp_registration()
+
         cli_bin = self.find_antigravity_executable()
         if not cli_bin:
             logger.info("No Antigravity CLI executable found in PATH, using direct quant agent fallback.")
@@ -706,14 +820,19 @@ class BridgeServer:
         full_prompt = (
             f"{self.system_prompt}\n\n"
             f"KÄYTTÄJÄN PYYNTÖ:\n{user_prompt}\n"
-            f"Aktiivinen symboli: {symbol}, Aikajänne: {timeframe}, Markkinalähde: {source}\n"
-            f"Noudata ohjeita:\n"
-            f"1. Kutsu get_market_context(symbol='{symbol}', timeframe='{timeframe}', source='{source}')\n"
-            f"2. Kirjoita Pine Script v5 -indikaattori\n"
-            f"3. Kutsu validate_pinets_syntax(script_code=...)\n"
-            f"4. Kutsu run_quantitative_backtest(symbol='{symbol}', timeframe='{timeframe}', strategy_rules=..., source='{source}')\n"
-            f"5. Kutsu push_indicator_to_chart\n"
-            f"6. Tulosta analyyttinen yhteenveto ja koodi."
+            f"Aktiivinen symboli: {symbol}, Aikajänne: {timeframe}, Markkinalähde: {source}\n\n"
+            f"KÄYTETTÄVISSÄ OLEVAT MCP-TYÖKALUT (palvelin: vela_quant):\n"
+            f"- get_market_context(symbol='{symbol}', timeframe='{timeframe}', source='{source}'): Hakee markkinatilanteen.\n"
+            f"- validate_pinets_syntax(script_code=...): Validoi Pine Script v5 -syntaksin.\n"
+            f"- run_quantitative_backtest(symbol='{symbol}', timeframe='{timeframe}', strategy_rules=..., source='{source}'): Laskee strategian backtest-tulokset.\n"
+            f"- push_indicator_to_chart(script_code=..., indicator_name=...): Piirtää indikaattorin kaaviolle.\n\n"
+            f"TYÖJÄRJESTYS - NOUDATA TARKASTI:\n"
+            f"1. Kutsu työkalu get_market_context (palvelimelta vela_quant).\n"
+            f"2. Kirjoita Pine Script v5 -indikaattori (alkaa //@version=5).\n"
+            f"3. Kutsu työkalu validate_pinets_syntax.\n"
+            f"4. Kutsu työkalu run_quantitative_backtest.\n"
+            f"5. Kutsu työkalu push_indicator_to_chart.\n"
+            f"6. Tulosta analyyttinen yhteenveto ja koodi käyttäjälle."
         )
 
         cmd = [
@@ -726,17 +845,23 @@ class BridgeServer:
         ]
 
         rendered_indicator = False
+        backtest_received = False
+        extracted_script_code = ""
+        indicator_title = "Generated Indicator"
         full_response_text = ""
 
         try:
+            sub_env = self.build_subprocess_env()
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                cwd=_project_root,
+                env=sub_env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
 
             async def read_stream():
-                nonlocal rendered_indicator, full_response_text
+                nonlocal rendered_indicator, backtest_received, extracted_script_code, indicator_title, full_response_text
                 while True:
                     line = await process.stdout.readline()
                     if not line:
@@ -757,13 +882,85 @@ class BridgeServer:
 
                         elif evt_name == "step_update":
                             step_type = su.get("step_type") or evt.get("step_type", "")
-                            if step_type in ("tool", "tool_call") or "tool_calls" in su:
-                                tool_name = su.get("tool_name") or evt.get("tool_name", "työkalu")
-                                args = su.get("arguments") or evt.get("arguments", {})
-                                await self.send_to(ws, {
-                                    "type": "log",
-                                    "message": f"[Työkalukutsu] {tool_name}({json.dumps(args)[:100]})",
-                                })
+                            t_info = su.get("tool_info") or {}
+
+                            if step_type in ("tool", "tool_call") or "tool_info" in su:
+                                raw_tool = su.get("tool_name") or t_info.get("name") or "työkalu"
+                                raw_params = t_info.get("parameters") or su.get("arguments") or {}
+
+                                # Unwrap MCP tool calls
+                                if raw_tool == "call_mcp_tool" or "ToolName" in raw_params:
+                                    mcp_server = raw_params.get("ServerName", "vela_quant")
+                                    tool_name = raw_params.get("ToolName", "mcp_tool")
+                                    tool_args = raw_params.get("Arguments") or {}
+                                    display_name = f"{mcp_server}:{tool_name}"
+                                else:
+                                    tool_name = raw_tool
+                                    tool_args = raw_params
+                                    display_name = raw_tool
+
+                                state = su.get("state", "ACTIVE")
+                                if state == "ACTIVE":
+                                    args_str = json.dumps(tool_args, ensure_ascii=False)
+                                    if len(args_str) > 110:
+                                        args_str = args_str[:107] + "..."
+                                    await self.send_to(ws, {
+                                        "type": "log",
+                                        "message": f"[Työkalukutsu] {display_name}({args_str})",
+                                    })
+                                elif state == "DONE":
+                                    duration = su.get("duration_seconds", 0)
+                                    dur_str = f" ({duration:.1f}s)" if duration else ""
+                                    await self.send_to(ws, {
+                                        "type": "log",
+                                        "message": f"[Työkalu valmis] {display_name}{dur_str}",
+                                    })
+
+                                    tool_output = t_info.get("output", "")
+
+                                    # Intercept push_indicator_to_chart directly from tool arguments
+                                    if tool_name == "push_indicator_to_chart":
+                                        code = tool_args.get("script_code", "")
+                                        name = tool_args.get("indicator_name", "Generated Indicator")
+                                        if code:
+                                            logger.info("Captured push_indicator_to_chart from event stream: %s", name)
+                                            rendered_indicator = True
+                                            extracted_script_code = code
+                                            indicator_title = name
+                                            await self.broadcast({
+                                                "type": "render_indicator",
+                                                "name": name,
+                                                "code": code,
+                                            })
+
+                                    # Intercept run_quantitative_backtest directly from tool output
+                                    elif tool_name == "run_quantitative_backtest":
+                                        if tool_output:
+                                            try:
+                                                parsed = json.loads(tool_output) if isinstance(tool_output, str) else tool_output
+                                                if isinstance(parsed, dict) and ("trades_count" in parsed or "win_rate" in parsed):
+                                                    backtest_received = True
+                                                    logger.info("Captured backtest metrics from event stream: win_rate=%s", parsed.get("win_rate"))
+                                                    await self.broadcast({
+                                                        "type": "metrics",
+                                                        "data": parsed,
+                                                    })
+                                            except Exception as parse_err:
+                                                logger.warning("Could not parse backtest output from tool stream: %s", parse_err)
+
+                                    # Direct validation feedback
+                                    elif tool_name == "validate_pinets_syntax":
+                                        if tool_output:
+                                            try:
+                                                val_res = json.loads(tool_output) if isinstance(tool_output, str) else tool_output
+                                                if isinstance(val_res, dict):
+                                                    if val_res.get("valid"):
+                                                        await self.send_to(ws, {"type": "log", "message": "[Validointi] Pine Script v5 -syntaksi validoitu OK."})
+                                                    elif val_res.get("error"):
+                                                        await self.send_to(ws, {"type": "log", "message": f"[Syntaksivirhe] Rivi {val_res.get('line', '?')}: {val_res.get('error')}"})
+                                            except Exception:
+                                                pass
+
                             elif step_type == "agent_response":
                                 delta = su.get("text_delta") or ""
                                 if delta:
@@ -792,11 +989,16 @@ class BridgeServer:
             await read_stream()
             await process.wait()
 
-            # Regex fallback extraction if push_indicator_to_chart wasn't invoked via tool call
-            if not rendered_indicator and "//@version=5" in full_response_text:
-                match = re.search(r"```(?:pinescript|pine)?\s*(//@version=5[\s\S]*?)```", full_response_text)
-                if match:
-                    extracted_code = match.group(1).strip()
+            # 1. Regex fallback extraction if push_indicator_to_chart wasn't invoked via tool call
+            if not rendered_indicator:
+                m = re.search(r"```(?:pinescript|pine)?\s*([\/@\s]*version\s*=\s*5[\s\S]*?)```", full_response_text, re.IGNORECASE)
+                if not m:
+                    m = re.search(r"(//\s*@version\s*=\s*5[\s\S]*?)(?:```|$)", full_response_text)
+                if not m:
+                    m = re.search(r"(indicator\([^\n]+\)[\s\S]*?)(?:```|$)", full_response_text)
+                if m:
+                    extracted_script_code = m.group(1).strip()
+                    rendered_indicator = True
                     logger.info("Extracted Pine Script from markdown response")
                     await self.send_to(ws, {
                         "type": "log",
@@ -804,8 +1006,27 @@ class BridgeServer:
                     })
                     await self.broadcast({
                         "type": "render_indicator",
-                        "name": "Generated Indicator",
-                        "code": extracted_code,
+                        "name": indicator_title,
+                        "code": extracted_script_code,
+                    })
+
+            # 2. Automated backtest execution guarantee if the agent omitted backtest step
+            if not backtest_received:
+                logger.info("Agent omitted run_quantitative_backtest; running deterministic backtest fallback.")
+                await self.send_to(ws, {
+                    "type": "log",
+                    "message": f"[Järjestelmä] Suoritetaan automaattinen kvantitatiivinen backtest ({symbol}, {timeframe})...",
+                })
+                active_list = []
+                if extracted_script_code:
+                    active_list.append({"name": indicator_title, "code": extracted_script_code, "visible": True})
+                bt_res = self.execute_backtest_core(symbol, timeframe, source, rules={"type": "ma_crossover"}, active_indicators=active_list)
+                if bt_res.get("status") == "ok" and "metrics" in bt_res:
+                    backtest_received = True
+                    await self.broadcast({"type": "metrics", "data": bt_res["metrics"]})
+                    await self.send_to(ws, {
+                        "type": "log",
+                        "message": f"[Backtest Valmis] Kaupat: {bt_res['metrics'].get('trades_count', 0)} | Win Rate: {bt_res['metrics'].get('win_rate', 0):.1f}% | Profit Factor: {bt_res['metrics'].get('profit_factor', 0):.2f}",
                     })
 
             await self.send_to(ws, {"type": "done"})

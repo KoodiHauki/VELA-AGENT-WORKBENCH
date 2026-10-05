@@ -33,7 +33,28 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 # 3. Add ~/.local/bin and ~/.agy/bin to PATH if not already present
-export PATH="$HOME/.local/bin:$HOME/.agy/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.agy/bin:/usr/local/bin:$PATH"
+export PYTHONUNBUFFERED=1
+export BRIDGE_HTTP_URL="http://127.0.0.1:8765"
+export PYTHONPATH="$SCRIPT_DIR:$SCRIPT_DIR/backend"
+
+# Ensure agy MCP server is registered if agy is present
+AGY_BIN=""
+for candidate in "$HOME/.local/bin/agy" "$HOME/.agy/bin/agy" "/usr/local/bin/agy" "/usr/bin/agy"; do
+    if [ -x "$candidate" ]; then
+        AGY_BIN="$candidate"
+        break
+    fi
+done
+if [ -z "$AGY_BIN" ] && command -v agy >/dev/null 2>&1; then
+    AGY_BIN="$(command -v agy)"
+fi
+
+if [ -n "$AGY_BIN" ]; then
+    VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+    [ ! -f "$VENV_PY" ] && VENV_PY="$(command -v $PYTHON_CMD)"
+    "$AGY_BIN" mcp add vela_quant "$VENV_PY" "$SCRIPT_DIR/backend/server.py" >/dev/null 2>&1 || true
+fi
 
 # 4. Start Python Bridge server in background
 # Clean up any leftover bridge on port 8765 if present
