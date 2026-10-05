@@ -79,10 +79,11 @@ class TestBackend(unittest.TestCase):
         self.assertIn("bybit_public", FREE_EXCHANGE_RESOURCES)
         self.assertIn("okx_public", FREE_EXCHANGE_RESOURCES)
 
-        # Download or load cached month
-        res = download_binance_monthly_klines("BTCUSDT", "1h", 2024, 1)
+        # Download or load cached month (1d: 31 daily bars for Jan 2024)
+        res = download_binance_monthly_klines("BTCUSDT", "1d", 2024, 1)
         self.assertIn(res.get("status"), ["downloaded", "cached"])
         self.assertEqual(res.get("month"), "2024-01")
+        self.assertEqual(res.get("rows"), 31)
 
         archives = list_downloaded_historical_archives()
         self.assertGreater(len(archives), 0)
@@ -99,7 +100,10 @@ class TestBackend(unittest.TestCase):
         self.assertIn("USDT", binance_syms[0]["quote"])
 
     def test_historical_file_loader(self):
-        from historical_downloader import load_combined_historical_df, load_historical_file_df
+        from historical_downloader import download_binance_monthly_klines, load_combined_historical_df, load_historical_file_df
+        # Ensure 1d archive is available even if this test is executed in isolation
+        download_binance_monthly_klines("BTCUSDT", "1d", 2024, 1)
+
         df_combined = load_combined_historical_df("BTCUSDT", "1d")
         self.assertFalse(df_combined.empty)
         self.assertIn("close", df_combined.columns)
