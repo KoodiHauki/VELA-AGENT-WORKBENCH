@@ -36,6 +36,11 @@ fi
 export PATH="$HOME/.local/bin:$HOME/.agy/bin:$PATH"
 
 # 4. Start Python Bridge server in background
+# Clean up any leftover bridge on port 8765 if present
+if command -v fuser >/dev/null 2>&1; then
+    fuser -k 8765/tcp >/dev/null 2>&1 || true
+fi
+
 echo "Käynnistetään Python WebSocket/HTTP -silta (portti 8765)..."
 $PYTHON_CMD backend/bridge.py &
 BRIDGE_PID=$!

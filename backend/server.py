@@ -1,17 +1,26 @@
 """FastMCP server exposing quantitative market tools for Antigravity."""
 
 from __future__ import annotations
+import glob
 import json
 import logging
 import os
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional
+
+# Ensure backend package and local .venv site-packages can be imported
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _venv_name in [".venv", "venv"]:
+    _venv_path = os.path.join(_project_root, _venv_name)
+    if os.path.exists(_venv_path):
+        for _sp in glob.glob(os.path.join(_venv_path, "lib*", "python*", "site-packages")) + glob.glob(os.path.join(_venv_path, "Lib", "site-packages")):
+            if os.path.exists(_sp) and _sp not in sys.path:
+                sys.path.insert(0, _sp)
+
 import requests
 from fastmcp import FastMCP
-
-# Ensure backend package can be imported
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_fetcher import get_candles
 from engine import calculate_market_context, run_quantitative_backtest_logic
 

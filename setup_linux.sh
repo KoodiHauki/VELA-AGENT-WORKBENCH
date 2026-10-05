@@ -55,11 +55,19 @@ echo ""
 echo "=== 5. Testataan frontendin tuotantokäännös ==="
 npm --prefix frontend run build
 
+# 6. Auto-register FastMCP tool with Antigravity if agy is available in PATH or ~/.local/bin
+export PATH="$HOME/.local/bin:$HOME/.agy/bin:$PATH"
+if command -v agy >/dev/null 2>&1; then
+    echo ""
+    echo "=== 6. Rekisteröidään FastMCP-työkalu Antigravitylle (agy) ==="
+    agy mcp add vela_quant "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/backend/server.py" || true
+fi
+
 echo ""
 echo "==================================================="
 echo "  Asennus onnistui! Kaikki riippuvuudet asennettu."
 echo "==================================================="
 echo ""
 echo "Voit nyt käynnistää ohjelman komennolla:"
-echo "  chmod +x run.sh && ./run.sh"
+echo "  ./run.sh"
 echo ""
