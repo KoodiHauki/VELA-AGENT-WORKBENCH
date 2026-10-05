@@ -102,7 +102,7 @@ flowchart TD
 ```
 VELA-AGENT-WORKBENCH/
 ├── backend/
-│   ├── server.py              # FastMCP-palvelin (4 kvanttityökalua Antigravitylle)
+│   ├── server.py              # FastMCP-palvelin (6 kvantti- ja arkistotyökalua Antigravitylle)
 │   ├── bridge.py              # WebSocket & HTTP -silta selaimen ja CLI:n välillä (portti 8765)
 │   ├── engine.py              # Deterministinen Pandas/NumPy-analyysi ja monikonfluenssi-backtest
 │   ├── data_fetcher.py        # Hyperliquid & Binance REST -historiadata ja levymuisti
@@ -150,25 +150,47 @@ VELA-AGENT-WORKBENCH/
 - **Node.js**: >= 20.x
 - **Antigravity CLI** (`agy`): v1.2.16 tai uudempi (valinnainen täyteen AI-tilaan)
 
-### 2. Riippuvuuksien asennus
+### 2. Riippuvuuksien asennus ja virtuaaliympäristö
 
+**Linux & macOS (automaattinen asennus):**
 ```bash
-# 1. Asenna Python-riippuvuudet
-python -m pip install -r backend/requirements.txt
+chmod +x setup_linux.sh run.sh
+./setup_linux.sh
+```
 
-# 2. Asenna Frontend-riippuvuudet
+**Manuaalinen asennus (kaikki käyttöjärjestelmät):**
+```bash
+# 1. Luo ja aktivoi Python-virtuaaliympäristö
+python3 -m venv .venv
+source .venv/bin/activate       # Linux / macOS
+# Windows: .\.venv\Scripts\Activate.ps1
+
+# 2. Asenna Python-riippuvuudet
+pip install -r backend/requirements.txt
+
+# 3. Asenna Frontend-riippuvuudet
 npm --prefix frontend install
 ```
 
 ### 3. FastMCP-työkalujen rekisteröinti (Antigravity CLI)
 
-Jos käytät Antigravity CLI:tä (`agy`):
+> [!NOTE]
+> `setup_linux.sh`, `run.sh` ja taustasilta (`bridge.py`) konfiguroivat FastMCP-työkalut automaattisesti tiedostoon `~/.gemini/config/mcp_config.json` ja synkronoivat ne `agy`-komennon kanssa.
+
+Mikäli haluat rekisteröidä työkalut manuaalisesti:
+
+**Linux / macOS:**
+```bash
+agy mcp add vela_quant "$PWD/.venv/bin/python" "$PWD/backend/server.py"
+```
+
+**Windows PowerShell:**
 ```powershell
-agy mcp add vela_quant python "$PWD\backend\server.py"
+agy mcp add vela_quant "$PWD\.venv\Scripts\python.exe" "$PWD\backend\server.py"
 ```
 
 Varmista rekisteröinti:
-```powershell
+```bash
 agy mcp list
 ```
 
@@ -178,11 +200,6 @@ Voit käynnistää sekä taustasillan että selainkäyttöliittymän yhdellä ko
 
 **Linuxissa & macOS:ssa:**
 ```bash
-# Ensimmäisellä kerralla voit asentaa kaiken suoraan:
-chmod +x setup_linux.sh run.sh
-./setup_linux.sh
-
-# Käynnistä järjestelmä:
 ./run.sh
 ```
 
@@ -206,12 +223,16 @@ Avaa selaimessa:
 
 ### FastMCP-työkalut (`backend/server.py`)
 
+FastMCP-palvelin tarjoaa 6 työkalua Antigravitylle ja MCP-agenteille:
+
 | Työkalu | Kuvaus | Parametrit |
 | :--- | :--- | :--- |
 | `get_market_context` | Hakee OHLCV-tilastot, ATR-volatiliteetin, trendin ja volyymin. | `symbol`, `timeframe`, `candles`, `source` |
 | `validate_pinets_syntax` | Validoi Pine Script v5 / PineTS -syntaksin headless-prosessissa. | `script_code` |
 | `run_quantitative_backtest` | Suorittaa tilastollisen backtestin 500 kynttilälle historiadataan. | `symbol`, `timeframe`, `strategy_rules`, `source` |
 | `push_indicator_to_chart` | Injektoi testatun indikaattorin suoraan aktiiviseen Vela-kaavioon. | `script_code`, `indicator_name` |
+| `download_historical_archive` | Lataa kuukausittaiset kynttiläarkistot (`data.binance.vision`) ZIP/CSV-muodossa paikallisesti. | `symbol`, `interval`, `start_year`, `start_month`, `end_year`, `end_month`, `exchange` |
+| `list_historical_archives` | Listaa kaikki levylle ladatut ja puretut historialliset CSV-arkistot. | - |
 
 ### Keskeiset HTTP REST -rajapinnat (`backend/bridge.py` : 8765)
 
@@ -231,18 +252,27 @@ Yksityiskohtainen rajapintakuvaus löytyy tiedostosta [docs/api_reference.md](do
 
 ## Testien suoritus
 
-Aja taustamoottorin yksikkötestit:
+Aja taustamoottorin yksikkötestit virtuaaliympäristössä:
+
+**Linux / macOS:**
+```bash
+.venv/bin/python -m unittest tests/test_backend.py
+```
+
+**Windows PowerShell:**
 ```powershell
-python -m unittest tests/test_backend.py
+.\.venv\Scripts\python -m unittest tests/test_backend.py
 ```
 
 Testaa headless syntaksitarkistin:
-```powershell
-node backend/validator.js "//@version=5`nindicator('Test')`nplot(close)"
+```bash
+node backend/validator.js "//@version=5
+indicator('Test')
+plot(close)"
 ```
 
 Testaa frontendin tuotantokäännös:
-```powershell
+```bash
 npm --prefix frontend run build
 ```
 

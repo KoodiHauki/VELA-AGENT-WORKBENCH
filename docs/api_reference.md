@@ -158,6 +158,63 @@ Lähettää hyväksytyn ja testatun indikaattorikoodin lokaalin HTTP-rajapinnan 
 
 ---
 
+### 1.5 `download_historical_archive`
+
+Lataa kuukausikohtaiset kynttiläarkistot suoraan rekisteröitymisvapaasta `data.binance.vision` -julkisesta arkistosta valitulle aikavälille, purkaa ZIP-paketit CSV-tiedostoiksi ja tallentaa ne paikalliseen levyvälimuistiin.
+
+**Parametrit:**
+| Nimi | Tyyppi | Oletus | Kuvaus |
+| :--- | :--- | :--- | :--- |
+| `symbol` | `string` | `"BTCUSDT"` | Kaupankäyntipari (esim. `"BTCUSDT"`, `"ETHUSDT"`). |
+| `interval` | `string` | `"1h"` | Kynttilöiden aikaväli (`"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"`, `"1w"`, `"1M"`). |
+| `start_year` | `integer` | `2024` | Alkuvuosi (esim. `2023`). |
+| `start_month` | `integer` | `1` | Alkukuukausi (`1`-`12`). |
+| `end_year` | `integer` | `2024` | Loppuvuosi (esim. `2024`). |
+| `end_month` | `integer` | `1` | Loppukuukausi (`1`-`12`). |
+| `exchange` | `string` | `"binance"` | Julkinen arkistolähde (`"binance"` -> data.binance.vision). |
+
+**Palautusarvo (`dict`):**
+```json
+{
+  "symbol": "BTCUSDT",
+  "interval": "1h",
+  "status": "completed",
+  "downloaded_files": [
+    "BTCUSDT-1h-2024-01.csv",
+    "BTCUSDT-1h-2024-02.csv"
+  ],
+  "total_rows": 1440,
+  "start_date": "2024-01-01 00:00:00",
+  "end_date": "2024-02-29 23:00:00"
+}
+```
+
+---
+
+### 1.6 `list_historical_archives`
+
+Listaa kaikki levylle ladatut, puretut ja välimuistissa olevat historialliset kynttiläarkistot sekä niiden tiedostokoot, rivimäärät ja aikaleimat.
+
+**Parametrit:** Ei vaadi parametreja.
+
+**Palautusarvo (`list`):**
+```json
+[
+  {
+    "symbol": "BTCUSDT",
+    "interval": "1d",
+    "filename": "BTCUSDT-1d-2024-01.csv",
+    "path": "/home/user/VELA-AGENT-WORKBENCH/backend/.cache/historical/binance/BTCUSDT/1d/BTCUSDT-1d-2024-01.csv",
+    "size_bytes": 4512,
+    "rows": 31,
+    "start_time": 1704067200000,
+    "end_time": 1706659200000
+  }
+]
+```
+
+---
+
 ## 2. Taustasillan HTTP REST -rajapinnat (`portti 8765`)
 
 Siltapalvelin tarjoaa HTTP REST -rajapintoja paikallista tiedonvälitystä ja tilatarkistuksia varten.
@@ -347,6 +404,26 @@ Käynnistää indikaattorin analysoinnin, koodauksen ja testauksen.
   "effort": "high",
   "mode": "auto",
   "source": "binance"
+}
+```
+
+#### `run_backtest`
+Suorittaa reaaliaikaisen kvantitatiivisen backtestin WebSocket-virran yli hyödyntäen kaaviolla aktiivisena olevia indikaattoreita (konfluenssi) tai määriteltyjä strategiasääntöjä:
+```json
+{
+  "type": "run_backtest",
+  "symbol": "BTC",
+  "timeframe": "1h",
+  "source": "hyperliquid",
+  "rules": {},
+  "activeIndicators": [
+    {
+      "id": "ind_1",
+      "name": "EMA 20/50 Crossover Trend",
+      "code": "//@version=5\nindicator('EMA 20/50')...\n",
+      "visible": true
+    }
+  ]
 }
 ```
 

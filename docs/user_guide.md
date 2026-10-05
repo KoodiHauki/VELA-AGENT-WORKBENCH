@@ -187,3 +187,54 @@ Järjestelmä tukee tai dokumentoi myös seuraavat rekisteröitymisvapaat julkis
 - **Bybit Public Archive**: `https://public.bybit.com/kline/` (Suorat kynttilä- ja kauppa-arkistot).
 - **OKX Historical REST API**: `https://www.okx.com/api/v5/market/history-candles` (Vuosien historia ilman avaimia).
 - **Hyperliquid Info API**: Suora tuki jopa 5000 kynttilälle kerralla.
+
+---
+
+## 9. Automaattinen FastMCP-konfigurointi (`vela_quant`)
+
+Järjestelmä sisältää automaattisen FastMCP-itsekorjautuvuuden (*self-healing auto-configuration*):
+- Kun käynnistät ohjelman (`./run.sh`, `setup_linux.sh` tai `run.ps1`), taustasilta (`backend/bridge.py`) päivittää automaattisesti tiedoston `~/.gemini/config/mcp_config.json` osoittamaan aktiivisen Python-virtuaaliympäristön tulkkiin (`.venv/bin/python` tai Windowsissa `.venv\Scripts\python.exe`).
+- Jos järjestelmästä löytyy Antigravity CLI (`agy`), taustasilta synkronoi rekisteröinnin suoraan CLI:lle komennolla `agy mcp add vela_quant ...`.
+- Agentin käytettävissä on 6 valmista työkalua:
+  1. `get_market_context`
+  2. `validate_pinets_syntax`
+  3. `run_quantitative_backtest`
+  4. `push_indicator_to_chart`
+  5. `download_historical_archive`
+  6. `list_historical_archives`
+- Mikäli Antigravity CLI ei ole asennettuna tai yhteys katkeaa, järjestelmä käyttää automaattista determinististä pika-analyysiä (`instant fallback`), jolloin indikaattorit, backtestit ja kaavio toimivat aina ilman katkoksia.
+
+---
+
+## 10. Vianmääritys ja Testaus
+
+### 10.1 Yksikkötestien ajaminen
+Varmista aina, että testit ajetaan virtuaaliympäristön Pythonilla:
+
+**Linux / macOS:**
+```bash
+.venv/bin/python -m unittest tests/test_backend.py
+```
+
+**Windows PowerShell:**
+```powershell
+.\.venv\Scripts\python -m unittest tests/test_backend.py
+```
+
+### 10.2 Porttikonfliktit
+Mikäli portti `8765` tai `5173` on varattu:
+- Linux / macOS:
+  ```bash
+  # Etsi ja sulje porttia 8765 käyttävä vanha prosessi:
+  fuser -k 8765/tcp || true
+  ```
+- Käynnistysskriptit (`run.sh` ja `run.ps1`) yrittävät automaattisesti vapauttaa portit ennen palveluiden käynnistämistä.
+
+### 10.3 Headless-syntaksitarkistimen testaus
+Voit testata Node.js PineTS -validaattorin suoraan komentoriviltä:
+```bash
+node backend/validator.js "//@version=5
+indicator('Test')
+plot(close)"
+```
+Odotettu tulos: `{"valid":true,"message":"Pine Script v5 -syntaksi ja ajo validoitu onnistuneesti."...}`

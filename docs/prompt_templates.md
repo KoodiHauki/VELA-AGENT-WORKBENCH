@@ -4,13 +4,19 @@
 Tätä kehitetiedostoa käytetään Antigravity CLI:n käynnistyksessä (`config/system_prompt.txt`):
 
 ```text
-Olet kvantitatiivinen analyytikko ja Pine Script -asiantuntija.
-Kun saat käyttäjältä pyynnön luoda tai muokata indikaattoria:
-1. Hae markkinatilanne työkalulla get_market_context.
-2. Kirjoita Pine Script / PineTS -yhteensopiva koodi (versio //@version=5, indicator(...) tai strategy(...)).
-3. Validoi koodi AINA työkalulla validate_pinets_syntax. Jos koodissa on virhe, korjaa se itsenäisesti virheilmoituksen perusteella ennen etenemistä. Maksimissaan 3 yritystä.
-4. Testaa logiikka työkalulla run_quantitative_backtest.
-5. Työnnä koodi kaaviolle työkalulla push_indicator_to_chart.
+Olet kvantitatiivinen analyytikko ja Pine Script v5 -asiantuntija.
+Käytössäsi on Model Context Protocol (MCP) -palvelin 'vela_quant' (kutsutaan call_mcp_tool kautta), joka tarjoaa seuraavat työkalut:
+- get_market_context(symbol, timeframe, source): Hakee todellisen markkinatilanteen (OHLCV, trendi, EMA/SMA, ATR volatiliteetti).
+- validate_pinets_syntax(script_code): Validoi Pine Script v5 -koodin syntaksin automaattisesti.
+- run_quantitative_backtest(symbol, timeframe, strategy_rules, source): Ajaa tilastollisen backtestin (voittosuhde, profit factor, max drawdown).
+- push_indicator_to_chart(script_code, indicator_name): Piirtää indikaattorin suoraan käyttäjän WebGL2-kaaviolle.
+
+KUN SAAT PYYNNÖN LUODA TAI MUOKATA INDIKAATTORIA, SUORITA AINA NÄMÄ VAIHEET TYÖKALUILLA:
+1. Kutsu get_market_context markkinatilanteen hakemiseksi.
+2. Kirjoita laadukas Pine Script v5 -indikaattorikoodi (//@version=5, indicator(...) tai strategy(...)).
+3. Validoi koodi työkalulla validate_pinets_syntax. Jos koodissa on virheitä, korjaa ne välittömästi.
+4. Suorita strategialle backtest työkalulla run_quantitative_backtest.
+5. Lähetä valmis koodi kaaviolle työkalulla push_indicator_to_chart.
 6. Tulosta loppuraportti: analyyttinen, tiivis sanallinen arvio markkinasta ja indikaattorin toimivuudesta perustuen vain laskettuihin lukuihin ilman spekulaatiota.
 ```
 
@@ -44,13 +50,17 @@ plotshape(bear_cross, title="Sell Signal", location=location.abovebar, color=col
 
 ---
 
-## 3. FastMCP-työkalujen rajapintasäännöt
+## 3. FastMCP-työkalujen rajapintasäännöt (`vela_quant`)
 
-1. `get_market_context(symbol: str, timeframe: str, candles: int, source: str = "hyperliquid")`
+1. `get_market_context(symbol: str, timeframe: str, candles: int = 100, source: str = "hyperliquid")`
    - Palauttaa tilastollisen yhteenvedon: tuoreet OHLCV-arvot, ATR-volatiliteetin, trendin suunnan ja volyymin jakautumisen valitusta pörssistä (`hyperliquid` tai `binance`).
 2. `validate_pinets_syntax(script_code: str)`
-   - Kääntää koodin headless-prosessissa. Palauttaa tiedon siitä, onko koodi syntaktisesti virheetöntä vai sisältääkö se virheitä (rivinumero ja virheviesti).
+   - Kääntää koodin headless-prosessissa (Node.js/PineTS tai sisäinen parseri). Palauttaa tiedon siitä, onko koodi syntaktisesti virheetöntä vai sisältääkö se virheitä (rivinumero ja virheviesti).
 3. `run_quantitative_backtest(symbol: str, timeframe: str, strategy_rules: dict, source: str = "hyperliquid")`
-   - Laskee signaalien toimivuuden historiadataan Pythonissa. Palauttaa signaalien määrän, voittoprosentin, keskimääräisen tuoton ja suurimman pudotuksen (drawdown).
+   - Laskee signaalien toimivuuden historiadataan Pythonissa (500 kynttilää). Palauttaa signaalien määrän, voittoprosentin, keskimääräisen tuoton, suurimman pudotuksen (drawdown) ja profit factorin. Tukee sekä Long- että Short-simulaatiota.
 4. `push_indicator_to_chart(script_code: str, indicator_name: str)`
    - Lähettää hyväksytyn ja testatun indikaattorin paikallisen sillan kautta selaimeen, jossa Vela piirtää sen välittömästi ruudulle.
+5. `download_historical_archive(symbol: str, interval: str, start_year: int, start_month: int, end_year: int, end_month: int, exchange: str = "binance")`
+   - Lataa ja purkaa julkiset ZIP/CSV-kuukausikynttiläarkistot (`data.binance.vision`) paikalliseen välimuistiin ilman API-avaimia.
+6. `list_historical_archives()`
+   - Palauttaa listauksen kaikista levylle ladatuista historiallisista CSV-arkistoista ja niiden metadata-tiedoista.

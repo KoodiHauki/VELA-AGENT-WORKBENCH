@@ -1,13 +1,13 @@
 {
   "mcpServers": {
     "vela_quant": {
-      "command": "C:\\Python314\\python.exe",
+      "command": "/home/user/VELA-AGENT-WORKBENCH/.venv/bin/python",
       "args": [
-        "C:\\Users\\user\\Documents\\koodit\\VELA-AGENT-WORKBENCH\\backend\\server.py"
+        "/home/user/VELA-AGENT-WORKBENCH/backend/server.py"
       ],
       "env": {
         "PYTHONUNBUFFERED": "1",
-        "PYTHONPATH": "C:\\Users\\user\\Documents\\koodit\\VELA-AGENT-WORKBENCH;C:\\Users\\user\\Documents\\koodit\\VELA-AGENT-WORKBENCH\\backend",
+        "PYTHONPATH": "/home/user/VELA-AGENT-WORKBENCH:/home/user/VELA-AGENT-WORKBENCH/backend",
         "BRIDGE_HTTP_URL": "http://127.0.0.1:8765"
       },
       "disabled": false
