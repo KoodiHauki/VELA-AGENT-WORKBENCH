@@ -136,7 +136,9 @@ VELA-AGENT-WORKBENCH/
 ├── tests/
 │   └── test_backend.py        # Yksikkötestit
 ├── run.bat                    # Windows Batch -käynnistin
-└── run.ps1                    # PowerShell-käynnistin
+├── run.ps1                    # PowerShell-käynnistin
+├── run.sh                     # Linux / macOS Bash -käynnistin
+└── setup_linux.sh             # Linuxin automatisoitu asennusskripti
 ```
 
 ---
@@ -172,9 +174,19 @@ agy mcp list
 
 ### 4. Käynnistys
 
-Voit käynnistää sekä taustasillan että selainkäyttöliittymän yhdellä komennolla:
+Voit käynnistää sekä taustasillan että selainkäyttöliittymän yhdellä komennolla käyttöjärjestelmästäsi riippuen:
 
-**PowerShellissä:**
+**Linuxissa & macOS:ssa:**
+```bash
+# Ensimmäisellä kerralla voit asentaa kaiken suoraan:
+chmod +x setup_linux.sh run.sh
+./setup_linux.sh
+
+# Käynnistä järjestelmä:
+./run.sh
+```
+
+**Windows PowerShellissä:**
 ```powershell
 .\run.ps1
 ```

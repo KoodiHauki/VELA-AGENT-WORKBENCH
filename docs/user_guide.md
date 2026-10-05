@@ -8,7 +8,17 @@ Tämä opas neuvoo, miten käytät **Vela Agent Workbenchia** sujuvasti tietokon
 
 ### 1.1 Palvelimen käynnistäminen
 
-Aja projektin juurihakemistossa käynnistysskripti:
+Aja projektin juurihakemistossa käynnistysskripti käyttöjärjestelmäsi mukaan:
+
+**Linux / macOS:**
+```bash
+# Asenna esivaatimukset ja luo virtuaaliympäristö (ensimmäisellä kerralla):
+chmod +x setup_linux.sh run.sh
+./setup_linux.sh
+
+# Käynnistä järjestelmä:
+./run.sh
+```
 
 **Windows PowerShell:**
 ```powershell

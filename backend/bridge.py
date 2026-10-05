@@ -91,11 +91,24 @@ class BridgeServer:
             )
 
     def find_antigravity_executable(self) -> Optional[str]:
-        """Find the agy / antigravity executable on this system."""
+        """Find the agy / antigravity executable on this system (Windows, Linux, macOS)."""
         custom_bin = os.environ.get("ANTIGRAVITY_CMD") or os.environ.get("AGY_BIN")
         if custom_bin and (os.path.exists(custom_bin) or shutil.which(custom_bin)):
             return custom_bin
 
+        # Linux / Unix / macOS standard paths
+        unix_candidates = [
+            os.path.expanduser("~/.local/bin/agy"),
+            os.path.expanduser("~/.agy/bin/agy"),
+            os.path.expanduser("~/bin/agy"),
+            "/usr/local/bin/agy",
+            "/usr/bin/agy",
+        ]
+        for p in unix_candidates:
+            if os.path.exists(p) and (os.access(p, os.X_OK) or sys.platform.startswith("win")):
+                return p
+
+        # Windows standard paths
         local_agy = os.path.expanduser(r"~\AppData\Local\agy\bin\agy.exe")
         if os.path.exists(local_agy):
             return local_agy
