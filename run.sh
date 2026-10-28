@@ -12,6 +12,9 @@ echo "  VELA AGENT WORKBENCH - Käynnistys (Linux/macOS)"
 echo "==================================================="
 echo ""
 
+# Export full PATH including Hermes tools, user local bin and standard paths
+export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$HOME/.hermes/tools/node-26.12.1-linux-x64/bin:$HOME/.hermes/tools/npm-12.0.2-linux-x64/bin:$HOME/.agy/bin:/usr/local/bin:$PATH"
+
 # 1. Determine Python executable (prefer venv if active or present)
 if [ -d "$SCRIPT_DIR/.venv" ]; then
     echo "Aktivoidaan paikallinen virtuaaliympäristö (.venv)..."

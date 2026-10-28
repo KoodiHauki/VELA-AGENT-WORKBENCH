@@ -63,15 +63,27 @@ export class BridgeClient {
   constructor() {}
 
   public getHttpBaseUrl(): string {
-    const host = window.location.hostname || '127.0.0.1';
-    const port = 8765;
-    return `http://${host}:${port}`;
+    if (typeof window !== 'undefined' && window.location) {
+      if (window.location.protocol === 'https:' || (window.location.port !== '5173' && window.location.port !== '8765')) {
+        return window.location.origin;
+      }
+      const host = window.location.hostname || '127.0.0.1';
+      return `http://${host}:8765`;
+    }
+    return 'http://127.0.0.1:8765';
   }
 
   private getBridgeUrl(): string {
-    const host = window.location.hostname || '127.0.0.1';
-    const port = 8765;
-    return `ws://${host}:${port}/ws`;
+    if (typeof window !== 'undefined' && window.location) {
+      const isHttps = window.location.protocol === 'https:';
+      if (isHttps || (window.location.port !== '5173' && window.location.port !== '8765')) {
+        const proto = isHttps ? 'wss:' : 'ws:';
+        return `${proto}//${window.location.host}/ws`;
+      }
+      const host = window.location.hostname || '127.0.0.1';
+      return `ws://${host}:8765/ws`;
+    }
+    return 'ws://127.0.0.1:8765/ws';
   }
 
   public connect() {

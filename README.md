@@ -8,6 +8,13 @@
 
 **Vela Agent Workbench** on paikallisesti ajettava ja Tailnetin (MagicDNS) kautta suojatusti saavutettava kvantitatiivinen analyysi- ja kaavioympäristö. Järjestelmä yhdistää reaaliaikaisen WebGL2-markkinakaavion, dynaamisen Pine Script v5 / PineTS -suorituksen, deterministisen Python-backtestauksen, useiden indikaattoreiden konfluenssianalyysin sekä tekoälyagentin (Antigravity 2.0 / CLI) orkestroinnin.
 
+## 🌐 Kotiverkko & Hermes AI (24/7 Palvelin)
+
+Workbench pyörii 24/7 Proxmox Hermes AI -virtuaalikoneella:
+* **HTTPS-tuotanto-osoite:** [https://chart.lan.ikkala.com](https://chart.lan.ikkala.com) (suojattu NPM Let's Encrypt Wildcard SSL:llä)
+* **Saavutettavuus:** Kotiverkko (`192.168.222.0/24`) ja MikroTik Back to Home WireGuard VPN (`192.168.216.0/24`)
+* **Päivittäminen Hermekselle:** `python deploy_to_hermes.py` (ks. [docs/hermes_deployment.md](docs/hermes_deployment.md))
+
 ---
 
 ## Arkkitehtuuri
