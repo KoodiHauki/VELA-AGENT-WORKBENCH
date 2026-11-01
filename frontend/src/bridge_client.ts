@@ -45,6 +45,7 @@ export type DoneListener = () => void;
 export type ConnectionListener = (connected: boolean, status: string) => void;
 export type ChartAnalysisListener = (analysis: { text: string; bias?: string }) => void;
 export type ChartAnalysisChunkListener = (delta: string) => void;
+export type UserStateSyncListener = (state: any) => void;
 
 export class BridgeClient {
   private ws: WebSocket | null = null;
@@ -59,6 +60,7 @@ export class BridgeClient {
   public onConnectionChange: ConnectionListener | null = null;
   public onChartAnalysis: ChartAnalysisListener | null = null;
   public onChartAnalysisChunk: ChartAnalysisChunkListener | null = null;
+  public onUserStateSync: UserStateSyncListener | null = null;
 
   constructor() {}
 
@@ -121,6 +123,8 @@ export class BridgeClient {
             if (this.onChartAnalysisChunk) this.onChartAnalysisChunk(data.delta || '');
           } else if (type === 'chart_analysis') {
             if (this.onChartAnalysis) this.onChartAnalysis({ text: data.text || '', bias: data.bias });
+          } else if (type === 'user_state_sync') {
+            if (this.onUserStateSync) this.onUserStateSync(data.state);
           } else if (type === 'done') {
             if (this.onDone) this.onDone();
           } else if (type === 'error') {
@@ -377,6 +381,33 @@ export class BridgeClient {
       console.error('[BridgeClient] Failed to trigger historical download:', e);
     }
     return { status: 'error', error: 'Verkkovirhe tai yhteysongelma' };
+  }
+
+  public async getUserState(): Promise<any> {
+    try {
+      const res = await fetch(`${this.getHttpBaseUrl()}/api/user-state`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch (e) {
+      console.warn('[BridgeClient] Failed to fetch user state:', e);
+    }
+    return null;
+  }
+
+  public async saveUserState(state: any): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.getHttpBaseUrl()}/api/user-state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state),
+      });
+      return res.ok;
+    } catch (e) {
+      console.error('[BridgeClient] Failed to save user state:', e);
+      return false;
+    }
   }
 
   public destroy() {

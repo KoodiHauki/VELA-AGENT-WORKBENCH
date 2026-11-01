@@ -15,7 +15,7 @@ import { BridgeClient, BacktestMetrics, SavedIndicator, TradingSymbol } from './
 import { COMMUNITY_SCRIPTS } from './community_scripts';
 import { UserMemoryManager, SavedActiveIndicator } from './user_memory';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // DOM Elements - Main Controls
   const chartContainer = document.getElementById('chart-container') as HTMLElement;
   const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
@@ -120,9 +120,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const metricAvgret = document.getElementById('metric-avgret') as HTMLElement;
   const metricTotret = document.getElementById('metric-totret') as HTMLElement;
 
-  // App State & Single-User Memory Persistence
-  const userMemory = new UserMemoryManager();
-  const initialMemory = userMemory.getState();
+  // App State & Single-User Memory Persistence (authoritative backend with local mirror)
+  const bridgeClient = new BridgeClient();
+  const userMemory = new UserMemoryManager(bridgeClient.getHttpBaseUrl());
+  const initialMemory = await userMemory.init();
 
   let lastInjectedCode = '';
   let lastInjectedName = '';
@@ -148,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function appendLog(message: string) {
+  function appendLog(message: string, persist: boolean = true) {
     if (!terminal) return;
     const line = document.createElement('div');
     line.className = 'terminal-line';
@@ -166,6 +167,10 @@ document.addEventListener('DOMContentLoaded', () => {
     line.textContent = message;
     terminal.appendChild(line);
     terminal.scrollTop = terminal.scrollHeight;
+
+    if (persist && userMemory) {
+      userMemory.appendTerminalLog(message);
+    }
   }
 
   function updateMetrics(m: Partial<BacktestMetrics>) {
@@ -201,7 +206,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 1. Initialize Vela Chart
+  // 1. Initialize Vela Chart Controls with Shared State
+  if (modelSelect && initialMemory.selectedModel) {
+    modelSelect.value = initialMemory.selectedModel;
+  }
+  if (modeSelect && initialMemory.selectedMode) {
+    modeSelect.value = initialMemory.selectedMode;
+  }
   if (sourceSelect) sourceSelect.value = currentSource;
   if (symbolSelect) {
     let opt = Array.from(symbolSelect.options).find((o) => o.value === currentSymbol);
@@ -230,6 +241,13 @@ document.addEventListener('DOMContentLoaded', () => {
       currentSourceBadge.className = 'source-mini-badge';
     }
   }
+
+  // Restore saved terminal logs across browser sessions
+  if (initialMemory.terminalLogs && initialMemory.terminalLogs.length > 0 && terminal) {
+    terminal.innerHTML = '';
+    initialMemory.terminalLogs.forEach((log) => appendLog(log, false));
+  }
+
   const chartManager = new VelaChartManager(chartContainer);
 
   try {
@@ -242,20 +260,25 @@ document.addEventListener('DOMContentLoaded', () => {
     appendLog(`[Virhe] Vela-kaavion alustus epäonnistui: ${err}`);
   }
 
-  // Restore saved active indicators from memory onto chart
+  // Restore saved active indicators from backend memory onto chart safely
+  let isRestoringIndicators = true;
   if (initialMemory.activeIndicators && initialMemory.activeIndicators.length > 0) {
     appendLog(`[Muisti] Palautetaan edellisen istunnon ${initialMemory.activeIndicators.length} indikaattoria kaaviolle...`);
-    initialMemory.activeIndicators.forEach((savedInd) => {
-      chartManager.injectIndicator(savedInd.code, savedInd.name).then((res) => {
-        if (res.success) {
+    for (const savedInd of initialMemory.activeIndicators) {
+      try {
+        const res = await chartManager.injectIndicator(savedInd.code, savedInd.name);
+        if (res.success && res.id) {
           appendLog(`[Muisti] Palautettu indikaattori "${savedInd.name}".`);
           if (!savedInd.visible) {
-            chartManager.toggleIndicatorVisibility(savedInd.id);
+            chartManager.toggleIndicatorVisibility(res.id);
           }
         }
-      });
-    });
+      } catch (indErr) {
+        console.warn('Indicator restore warning:', indErr);
+      }
+    }
   }
+  isRestoringIndicators = false;
 
   // Restore previous backtest results & analysis
   if (initialMemory.lastBacktest?.metrics) {
@@ -295,6 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
   chartManager.onActiveIndicatorsChange = (indicators: ActiveIndicatorItem[]) => {
     renderActiveIndicatorsBar(indicators);
     updateActiveStrategyBadge();
+    if (isRestoringIndicators) return;
     const toSave: SavedActiveIndicator[] = indicators.map((ind) => ({
       id: ind.id,
       name: ind.name,
@@ -356,8 +380,54 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 2. Initialize Bridge Client
-  const bridgeClient = new BridgeClient();
+  // 2. Setup Bridge Client Listeners
+  bridgeClient.onUserStateSync = (remoteState) => {
+    if (!remoteState) return;
+    userMemory.adoptState(remoteState);
+
+    if (remoteState.favoriteKeys && Array.isArray(remoteState.favoriteKeys)) {
+      favoriteKeys = new Set(remoteState.favoriteKeys);
+      renderFavoritesBar();
+      renderSymbolGridList();
+    }
+    if (remoteState.selectedModel && modelSelect && modelSelect.value !== remoteState.selectedModel) {
+      modelSelect.value = remoteState.selectedModel;
+    }
+    if (remoteState.selectedMode && modeSelect && modeSelect.value !== remoteState.selectedMode) {
+      modeSelect.value = remoteState.selectedMode;
+    }
+    if (remoteState.lastBacktest?.metrics) {
+      lastBacktestMetrics = remoteState.lastBacktest.metrics;
+      lastBacktestSummary = remoteState.lastBacktest.summary || '';
+      updateMetrics(remoteState.lastBacktest.metrics);
+      if (agentSummary && remoteState.lastBacktest.summary) {
+        agentSummary.innerHTML = formatMarkdownText(remoteState.lastBacktest.summary);
+      }
+    }
+    if (remoteState.lastAnalysis?.text) {
+      currentAnalysisText = remoteState.lastAnalysis.text;
+      if (chartAnalysisOutput) {
+        chartAnalysisOutput.innerHTML = formatMarkdownText(remoteState.lastAnalysis.text);
+      }
+      if (chartAnalysisCard) {
+        chartAnalysisCard.style.display = 'block';
+      }
+      if (analysisBiasBadge && remoteState.lastAnalysis.bias) {
+        const b = (remoteState.lastAnalysis.bias || '').toUpperCase();
+        analysisBiasBadge.className = 'analysis-badge';
+        if (b === 'BUY' || b.includes('OSTO')) {
+          analysisBiasBadge.classList.add('badge-buy');
+          analysisBiasBadge.textContent = '🟢 OSTO';
+        } else if (b === 'SELL' || b.includes('MYYNTI')) {
+          analysisBiasBadge.classList.add('badge-sell');
+          analysisBiasBadge.textContent = '🔴 MYYNTI';
+        } else {
+          analysisBiasBadge.classList.add('badge-neutral');
+          analysisBiasBadge.textContent = '🟡 NEUTRAALI';
+        }
+      }
+    }
+  };
 
   bridgeClient.onLog = (msg: string) => {
     appendLog(msg);
@@ -497,13 +567,6 @@ document.addEventListener('DOMContentLoaded', () => {
     appendLog(`[Silta] ${status}`);
     if (connected) {
       loadSymbols();
-      userMemory.syncFromBackend().then((remote) => {
-        if (remote && remote.favoriteKeys && remote.favoriteKeys.length > 0) {
-          favoriteKeys = new Set(remote.favoriteKeys);
-          renderFavoritesBar();
-          renderSymbolGridList();
-        }
-      }).catch(() => {});
     }
   };
 
@@ -556,7 +619,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     appendLog(`[Markkina] Vaihdetaan markkinapari: ${currentSource.toUpperCase()}:${currentSymbol} (${tf})`);
     chartManager.setMarket(currentSymbol, tf, currentSource);
-    userMemory.setMarket(currentSymbol, currentSource, tf, currentPairName);
+    userMemory.setMarket(currentSymbol, tf, currentSource, currentPairName);
     renderFavoritesBar();
   }
 
@@ -849,13 +912,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const tf = timeframeSelect.value;
     appendLog(`[Aikajänne] Vaihdetaan aikajänne: ${tf} (${currentSource.toUpperCase()}:${currentSymbol})`);
     chartManager.setMarket(currentSymbol, tf, currentSource);
-    userMemory.setMarket(currentSymbol, currentSource, tf, currentPairName);
+    userMemory.setMarket(currentSymbol, tf, currentSource, currentPairName);
   });
+
+  if (modelSelect) {
+    modelSelect.addEventListener('change', () => {
+      userMemory.setModel(modelSelect.value);
+      appendLog(`[Asetukset] AI-malli tallennettu: ${modelSelect.value}`);
+    });
+  }
+
+  if (modeSelect) {
+    modeSelect.addEventListener('change', () => {
+      userMemory.setMode(modeSelect.value);
+      appendLog(`[Asetukset] Analyysitila tallennettu: ${modeSelect.value}`);
+    });
+  }
 
   // Clear terminal
   if (clearTermBtn) {
     clearTermBtn.addEventListener('click', () => {
       terminal.innerHTML = '';
+      userMemory.clearTerminalLogs();
     });
   }
 

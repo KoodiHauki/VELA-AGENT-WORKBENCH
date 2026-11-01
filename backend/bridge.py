@@ -45,6 +45,27 @@ MCP_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "mcp_config.json")
 INDICATORS_FILE = os.path.join(os.path.dirname(__file__), "indicators", "saved_indicators.json")
 USER_STATE_FILE = os.path.join(os.path.dirname(__file__), "user_state.json")
 
+DEFAULT_USER_STATE: Dict[str, Any] = {
+    "selectedMarket": {
+        "symbol": "BTC",
+        "timeframe": "1h",
+        "source": "hyperliquid",
+        "displayName": "BTC/USD",
+    },
+    "favoriteKeys": [
+        "hyperliquid:BTC",
+        "hyperliquid:ETH",
+        "hyperliquid:SOL",
+        "binance:BTCUSDT",
+    ],
+    "activeIndicators": [],
+    "lastBacktest": None,
+    "lastAnalysis": None,
+    "selectedModel": "gemini-3.8-flash-high",
+    "selectedMode": "auto",
+    "terminalLogs": [],
+}
+
 
 def _get_saved_indicators() -> List[Dict[str, Any]]:
     if not os.path.exists(INDICATORS_FILE):
@@ -64,21 +85,61 @@ def _save_indicators(items: List[Dict[str, Any]]):
 
 
 def _get_user_state() -> Dict[str, Any]:
+    state = dict(DEFAULT_USER_STATE)
     if os.path.exists(USER_STATE_FILE):
         try:
             with open(USER_STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                content = f.read().strip()
+                if content:
+                    loaded = json.loads(content)
+                    if isinstance(loaded, dict) and loaded:
+                        for k, v in loaded.items():
+                            if isinstance(v, dict) and isinstance(state.get(k), dict):
+                                merged = dict(state[k])
+                                merged.update(v)
+                                state[k] = merged
+                            else:
+                                state[k] = v
+                        return state
         except Exception as e:
             logger.error("Error reading user_state.json: %s", e)
-    return {}
+    # Save default initial state if file was empty or missing
+    _save_user_state(state)
+    return state
 
 
-def _save_user_state(state: Dict[str, Any]) -> None:
+def _save_user_state(state: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        with open(USER_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
+        existing: Dict[str, Any] = {}
+        if os.path.exists(USER_STATE_FILE):
+            try:
+                with open(USER_STATE_FILE, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        existing = json.loads(content)
+            except Exception:
+                existing = {}
+
+        if not existing:
+            existing = dict(DEFAULT_USER_STATE)
+
+        for k, v in state.items():
+            if isinstance(v, dict) and isinstance(existing.get(k), dict):
+                merged = dict(existing[k])
+                merged.update(v)
+                existing[k] = merged
+            else:
+                existing[k] = v
+
+        os.makedirs(os.path.dirname(os.path.abspath(USER_STATE_FILE)), exist_ok=True)
+        temp_file = USER_STATE_FILE + ".tmp"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+        os.replace(temp_file, USER_STATE_FILE)
+        return existing
     except Exception as e:
         logger.error("Error writing user_state.json: %s", e)
+        return state
 
 
 class BridgeServer:
@@ -274,6 +335,13 @@ class BridgeServer:
             "message": f"[Bridge] Yhteys muodostettu taustapalvelimeen ({self.host}:{self.port}).",
         })
 
+        # Send current persistent workspace state to newly connected client
+        user_state = _get_user_state()
+        await self.send_to(ws, {
+            "type": "user_state_sync",
+            "state": user_state,
+        })
+
         try:
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:
@@ -321,6 +389,21 @@ class BridgeServer:
                             asyncio.create_task(
                                 self.handle_direct_backtest(ws, symbol, timeframe, source, rules, active_indicators)
                             )
+
+                        elif msg_type == "save_user_state":
+                            state_to_save = data.get("state", {})
+                            if isinstance(state_to_save, dict):
+                                updated = _save_user_state(state_to_save)
+                                await self.broadcast({
+                                    "type": "user_state_sync",
+                                    "state": updated,
+                                })
+
+                        elif msg_type == "get_user_state":
+                            await self.send_to(ws, {
+                                "type": "user_state_sync",
+                                "state": _get_user_state(),
+                            })
 
                         elif msg_type == "ping":
                             await self.send_to(ws, {"type": "pong"})
@@ -537,6 +620,19 @@ class BridgeServer:
             f"**Toimintasuositus ja riskiarvio:**\n{action}"
         )
 
+        # Auto-persist analysis to single-user workspace state
+        try:
+            _save_user_state({
+                "lastAnalysis": {
+                    "text": analysis_text,
+                    "bias": bias_tag,
+                    "symbol": symbol,
+                    "timestamp": int(time.time() * 1000),
+                }
+            })
+        except Exception as se:
+            logger.warning("Failed to auto-save analysis state: %s", se)
+
         await self.send_to(ws, {"type": "chart_analysis", "text": analysis_text, "bias": bias_tag})
         await self.send_to(ws, {"type": "done"})
 
@@ -642,6 +738,19 @@ class BridgeServer:
             res = self.execute_backtest_core(symbol, timeframe, source, rules, active_indicators)
             metrics = res["metrics"]
             summary_md = res["summary"]
+
+            # Auto-persist backtest to single-user workspace state
+            try:
+                _save_user_state({
+                    "lastBacktest": {
+                        "strategy": f"{symbol} ({timeframe}, {source.upper()})",
+                        "metrics": metrics,
+                        "summary": summary_md,
+                        "timestamp": int(time.time() * 1000),
+                    }
+                })
+            except Exception as se:
+                logger.warning("Failed to auto-save backtest state: %s", se)
 
             await self.send_to(ws, {"type": "metrics", "data": metrics})
             await self.send_to(ws, {"type": "summary", "text": summary_md})
@@ -1227,8 +1336,13 @@ class BridgeServer:
         """HTTP POST endpoint for single-user workspace memory."""
         try:
             data = await request.json()
-            _save_user_state(data)
-            return web.json_response({"status": "ok"})
+            updated = _save_user_state(data)
+            # Broadcast update to connected WebSockets so multiple browser tabs/sessions stay in sync
+            await self.broadcast({
+                "type": "user_state_sync",
+                "state": updated,
+            })
+            return web.json_response({"status": "ok", "state": updated})
         except Exception as e:
             logger.error("Failed to save user state: %s", e)
             return web.json_response({"error": str(e)}, status=500)

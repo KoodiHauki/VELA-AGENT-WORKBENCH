@@ -88,12 +88,18 @@ flowchart TD
    - **Long & Short -simulaatio**: Testaa 500 kynttilälle sekä osto- että myyntipositiot.
    - **Metriikat**: Voittoprosentti, Profit Factor, Suurin pudotus (Max Drawdown), Kauppojen määrä, Kesk. tuotto ja Kokonaistuotto.
 7. **Yhden Käyttäjän Pysyvä Muisti (`UserMemory`)**:
-   - Kaksoistallennus selaimen `localStorageen` ja palvelimen `backend/user_state.json` -tiedostoon.
-   - Muistaa automaattisesti sivun päivityksen (F5) yli:
-     - Valitun markkinaparin, aikajänteen ja pörssin.
+   - Säilyttää työtilan tilan luotettavasti **kaikkien eri selainistuntojen välillä** (eri selaimet, incognito, mobiili, uudelleenkäynnistykset).
+   - Palvelimen `backend/user_state.json` toimii auktoritatiivisena päämuistina (`/api/user-state`), jota `localStorage` peilaa.
+   - Asynkroninen suojaus estää tyhjää uutta istuntoa ylikirjoittamasta tallennettua tilaa.
+   - Reaaliaikainen WebSocket-synkronointi (`user_state_sync`) päivittää rinnakkaiset välilehdet.
+   - Muistaa automaattisesti:
+     - Valitun markkinaparin, aikajänteen, pörssin ja näyttönimen.
      - Suosikkiparit (⭐).
      - **Kaikki kaaviolle ladatut indikaattorit** (injektoidaan takaisin käynnistyksessä).
-     - Viimeisimmät backtest-metriikat ja tilannekatsaukset.
+     - Viimeisimmät backtest-metriikat ja strategiaselostuksen.
+     - Viimeisimmän teknisen analyysin ja markkinabiaksen (🟢 OSTO / 🔴 MYYNTI / 🟡 NEUTRAALI).
+     - Valitun tekoälymallin ja suoritustilan.
+     - Viimeisimmät terminaalilokit.
 8. **Täysi Historiadata & Arkistokatselin (💾 Historiadata)**:
    - Lataa ja purkaa `data.binance.vision` -kuukausiarkistoja ZIP/CSV-muodossa.
    - **📊 Avaa kaaviolla**: Avaa ladatut CSV-tiedostot suoraan Vela WebGL2 -kaaviolle tarkasteltavaksi.

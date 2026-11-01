@@ -352,13 +352,16 @@ Suorittaa deterministisen kvantitatiivisen backtestin välittömästi ilman WebS
   ```
 
 ### `GET /api/user-state` ja `POST /api/user-state`
-Yhden käyttäjän pysyvä tilamuisti (`backend/user_state.json`), joka tallentaa ja palauttaa työtilan tilan palvelimen ja selaimen välillä.
+Yhden käyttäjän pysyvä tilamuisti (`backend/user_state.json`), joka tallentaa ja palauttaa työtilan tilan palvelimen ja selaimen välillä eri istuntojen ja laitteiden yli.
 - **Tallennettavat kentät:**
   - `selectedMarket`: Symboli, aikajänne, lähde ja näyttönimi.
   - `favoriteKeys`: Suosikkiparien tunnisteet (esim. `["hyperliquid:BTC", "binance:BTCUSDT"]`).
   - `activeIndicators`: Kaaviolle ladattujen aktiivisten indikaattoreiden koodit ja nimet (palautetaan automaattisesti käynnistyksessä).
   - `lastBacktest`: Viimeisimmät lasketut metriikat ja sanallinen yhteenveto.
   - `lastAnalysis`: Viimeisin tekninen tilannearvio ja osto/myynti-bias.
+  - `selectedModel`: Viimeksi valittu AI-malli (esim. `gemini-3.8-flash-high`).
+  - `selectedMode`: Viimeksi valittu analyysitila (`auto` / `instant`).
+  - `terminalLogs`: Viimeisimmät komentorivilokit (viimeiset 40 riviä).
 
 ### `GET /api/health`
 Palvelimen terveydentila ja aktiivisten asiakkaiden määrä.
@@ -438,6 +441,7 @@ Yhteyden elossapito. Palvelin vastaa `{"type": "pong"}`.
 | :--- | :--- | :--- |
 | `log` | `{"message": "..."}` | Rivi agentin suoratoistoterminaaliin. |
 | `metrics` | `{"data": { ... }}` | Backtest-metriikat tilastokorttien päivitykseen. |
+| `user_state_sync` | `{"state": { ... }}` | Työtilan tilan synkronointi reaaliajassa kaikkiin istuntoihin. |
 | `render_indicator`| `{"name": "...", "code": "..."}` | Pine Script v5 -koodi ajettavaksi Vela-kaaviolle. |
 | `summary` | `{"text": "..."}` | Agentin objektiivinen sanallinen tilannekatsaus. |
 | `done` | `{}` | Kertoo ajon päättymisestä ja vapauttaa komentopalkin. |

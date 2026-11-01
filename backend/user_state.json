@@ -1,1 +1,20 @@
-{}
+{
+  "selectedMarket": {
+    "symbol": "BTC",
+    "timeframe": "1h",
+    "source": "hyperliquid",
+    "displayName": "BTC/USD"
+  },
+  "favoriteKeys": [
+    "hyperliquid:BTC",
+    "hyperliquid:ETH",
+    "hyperliquid:SOL",
+    "binance:BTCUSDT"
+  ],
+  "activeIndicators": [],
+  "lastBacktest": null,
+  "lastAnalysis": null,
+  "selectedModel": "gemini-3.8-flash-high",
+  "selectedMode": "auto",
+  "terminalLogs": []
+}

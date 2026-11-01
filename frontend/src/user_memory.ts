@@ -1,6 +1,7 @@
 /**
  * Single-User Persistent Memory System for Vela Agent Workbench.
- * Persists workspace state across reloads (localStorage) and machine restarts (/api/user-state).
+ * Persists workspace state across all browser sessions and machine restarts
+ * via backend authority (/api/user-state) with fast local mirror (localStorage).
  */
 
 export interface SavedActiveIndicator {
@@ -28,8 +29,12 @@ export interface UserMemoryState {
   lastAnalysis?: {
     text: string;
     bias?: string;
-    timestamp: string;
+    symbol?: string;
+    timestamp: string | number;
   } | null;
+  selectedModel?: string;
+  selectedMode?: string;
+  terminalLogs?: string[];
 }
 
 const STORAGE_KEY = 'vela_user_memory_v1';
@@ -37,13 +42,26 @@ const STORAGE_KEY = 'vela_user_memory_v1';
 export class UserMemoryManager {
   private currentState: UserMemoryState;
   private backendBaseUrl: string;
+  private isInitialized: boolean = false;
+  private pushTimer: any = null;
+  private initPromise: Promise<UserMemoryState> | null = null;
 
   constructor(backendBaseUrl: string = '') {
-    this.backendBaseUrl = backendBaseUrl;
+    if (!backendBaseUrl && typeof window !== 'undefined' && window.location) {
+      if (window.location.protocol === 'https:' || (window.location.port !== '5173' && window.location.port !== '8765')) {
+        this.backendBaseUrl = window.location.origin;
+      } else {
+        const host = window.location.hostname || '127.0.0.1';
+        this.backendBaseUrl = `http://${host}:8765`;
+      }
+    } else {
+      this.backendBaseUrl = backendBaseUrl;
+    }
+    // Synchronous immediate local fallback for instant paint
     this.currentState = this.loadInitialLocalState();
   }
 
-  private getDefaultState(): UserMemoryState {
+  public getDefaultState(): UserMemoryState {
     return {
       selectedMarket: {
         symbol: 'BTC',
@@ -55,63 +73,124 @@ export class UserMemoryManager {
       activeIndicators: [],
       lastBacktest: null,
       lastAnalysis: null,
+      selectedModel: 'gemini-3.8-flash-high',
+      selectedMode: 'auto',
+      terminalLogs: [],
+    };
+  }
+
+  private mergeWithDefaults(partial: any): UserMemoryState {
+    const defaults = this.getDefaultState();
+    if (!partial || typeof partial !== 'object') return defaults;
+
+    return {
+      selectedMarket: {
+        symbol: partial.selectedMarket?.symbol || defaults.selectedMarket.symbol,
+        timeframe: partial.selectedMarket?.timeframe || defaults.selectedMarket.timeframe,
+        source: partial.selectedMarket?.source || defaults.selectedMarket.source,
+        displayName: partial.selectedMarket?.displayName || defaults.selectedMarket.displayName,
+      },
+      favoriteKeys: Array.isArray(partial.favoriteKeys) && partial.favoriteKeys.length > 0
+        ? partial.favoriteKeys
+        : defaults.favoriteKeys,
+      activeIndicators: Array.isArray(partial.activeIndicators) ? partial.activeIndicators : [],
+      lastBacktest: partial.lastBacktest !== undefined ? partial.lastBacktest : defaults.lastBacktest,
+      lastAnalysis: partial.lastAnalysis !== undefined ? partial.lastAnalysis : defaults.lastAnalysis,
+      selectedModel: partial.selectedModel || defaults.selectedModel,
+      selectedMode: partial.selectedMode || defaults.selectedMode,
+      terminalLogs: Array.isArray(partial.terminalLogs) ? partial.terminalLogs : [],
     };
   }
 
   private loadInitialLocalState(): UserMemoryState {
-    const defaults = this.getDefaultState();
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return {
-          ...defaults,
-          ...parsed,
-          selectedMarket: { ...defaults.selectedMarket, ...(parsed.selectedMarket || {}) },
-          favoriteKeys: Array.isArray(parsed.favoriteKeys) ? parsed.favoriteKeys : defaults.favoriteKeys,
-          activeIndicators: Array.isArray(parsed.activeIndicators) ? parsed.activeIndicators : [],
-        };
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          return this.mergeWithDefaults(parsed);
+        }
       }
     } catch (e) {
       console.warn('[UserMemory] Failed to load localStorage:', e);
     }
-    return defaults;
+    return this.getDefaultState();
+  }
+
+  /**
+   * Authoritative initialization from single-user backend.
+   * Ensures different browser sessions immediately load the shared state.
+   */
+  public async init(): Promise<UserMemoryState> {
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      try {
+        const url = `${this.backendBaseUrl}/api/user-state`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3500);
+
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.state && Object.keys(data.state).length > 0) {
+            this.currentState = this.mergeWithDefaults(data.state);
+            this.saveStateLocally();
+            this.isInitialized = true;
+            console.log('[UserMemory] Synchronized persistent state from backend successfully.');
+            return this.currentState;
+          }
+        }
+      } catch (e) {
+        console.warn('[UserMemory] Backend sync unavailable on startup, using local mirror:', e);
+      }
+
+      // If backend was empty or unreachable, use local state mirror
+      this.isInitialized = true;
+      return this.currentState;
+    })();
+
+    return this.initPromise;
   }
 
   public getState(): UserMemoryState {
     return this.currentState;
   }
 
-  public async syncFromBackend(): Promise<UserMemoryState> {
-    try {
-      const url = `${this.backendBaseUrl}/api/user-state`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        const serverState = data.state;
-        if (serverState && Object.keys(serverState).length > 0) {
-          // If local storage had no active indicators or default market, adopt server state
-          if (this.currentState.activeIndicators.length === 0 && Array.isArray(serverState.activeIndicators) && serverState.activeIndicators.length > 0) {
-            this.currentState.activeIndicators = serverState.activeIndicators;
-          }
-          if (serverState.lastBacktest && !this.currentState.lastBacktest) {
-            this.currentState.lastBacktest = serverState.lastBacktest;
-          }
-          this.saveStateLocally();
-        }
-      }
-    } catch (e) {
-      console.warn('[UserMemory] Backend sync skipped or unavailable:', e);
-    }
-    return this.currentState;
+  /**
+   * Adopt remote state without re-pushing back to server (e.g. from WebSocket broadcast)
+   */
+  public adoptState(remoteState: Partial<UserMemoryState>) {
+    this.currentState = this.mergeWithDefaults({
+      ...this.currentState,
+      ...remoteState,
+    });
+    this.saveStateLocally();
   }
 
   private saveStateLocally() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.currentState));
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.currentState));
+      }
     } catch (e) {
       console.warn('[UserMemory] Failed to write localStorage:', e);
     }
+  }
+
+  private schedulePushToBackend() {
+    if (!this.isInitialized) {
+      // Guard: never push empty/uninitialized defaults to the backend
+      return;
+    }
+    if (this.pushTimer) {
+      clearTimeout(this.pushTimer);
+    }
+    this.pushTimer = setTimeout(() => {
+      this.pushStateToBackend();
+    }, 250);
   }
 
   private async pushStateToBackend() {
@@ -123,7 +202,7 @@ export class UserMemoryManager {
         body: JSON.stringify(this.currentState),
       });
     } catch (e) {
-      // Background save failure is non-blocking
+      console.warn('[UserMemory] Push to backend failed:', e);
     }
   }
 
@@ -131,10 +210,12 @@ export class UserMemoryManager {
     this.currentState = {
       ...this.currentState,
       ...partial,
-      selectedMarket: partial.selectedMarket ? { ...this.currentState.selectedMarket, ...partial.selectedMarket } : this.currentState.selectedMarket,
+      selectedMarket: partial.selectedMarket
+        ? { ...this.currentState.selectedMarket, ...partial.selectedMarket }
+        : this.currentState.selectedMarket,
     };
     this.saveStateLocally();
-    this.pushStateToBackend();
+    this.schedulePushToBackend();
   }
 
   public setMarket(symbol: string, timeframe: string, source: string, displayName: string) {
@@ -149,6 +230,30 @@ export class UserMemoryManager {
 
   public setActiveIndicators(activeIndicators: SavedActiveIndicator[]) {
     this.save({ activeIndicators });
+  }
+
+  public setModel(selectedModel: string) {
+    this.save({ selectedModel });
+  }
+
+  public setMode(selectedMode: string) {
+    this.save({ selectedMode });
+  }
+
+  public appendTerminalLog(logMessage: string) {
+    const logs = [...(this.currentState.terminalLogs || [])];
+    logs.push(logMessage);
+    // Keep last 40 lines
+    if (logs.length > 40) {
+      logs.splice(0, logs.length - 40);
+    }
+    this.currentState.terminalLogs = logs;
+    this.saveStateLocally();
+    this.schedulePushToBackend();
+  }
+
+  public clearTerminalLogs() {
+    this.save({ terminalLogs: [] });
   }
 
   public setLastBacktest(
@@ -186,7 +291,8 @@ export class UserMemoryManager {
         lastAnalysis: {
           text: textOrData.text,
           bias: textOrData.bias,
-          timestamp: typeof textOrData.timestamp === 'string' ? textOrData.timestamp : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          symbol: textOrData.symbol,
+          timestamp: typeof textOrData.timestamp === 'string' ? textOrData.timestamp : (textOrData.timestamp || Date.now()),
         },
       });
     } else {
@@ -194,7 +300,7 @@ export class UserMemoryManager {
         lastAnalysis: {
           text: textOrData,
           bias: bias,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: Date.now(),
         },
       });
     }

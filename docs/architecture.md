@@ -89,8 +89,18 @@ flowchart TB
   - Reagoi automaattisesti yhteyskatkoihin ja kytkeytyy uudelleen.
   - Jakaa saapuvat viestit tyypeittäin (`log`, `metrics`, `render_indicator`, `summary`, `done`, `error`).
 - **[`frontend/src/user_memory.ts`](../frontend/src/user_memory.ts)**:
-  - Yhden käyttäjän pysyvä muistijärjestelmä.
-  - Tallentaa ja palauttaa automaattisesti valitun markkinaparin, suosikit, aktiiviset indikaattorit ja viimeisimmät metriikat selaimen `localStorageen` sekä palvelimelle (`/api/user-state`).
+  - Yhden käyttäjän istuntojen välinen pysyvä muistijärjestelmä (`UserMemoryManager`).
+  - Palvelin (`/api/user-state` & `backend/user_state.json`) toimii ensisijaisena ja auktoritatiivisena totuuslähteenä, ja `localStorage` toimii nopeana paikallisena peilinä.
+  - Alustetaan asynkronisesti (`await userMemory.init()`) ennen käyttöliittymän käynnistymistä, mikä estää tyhjiä oletustiloja ylikirjoittamasta palvelimen tallennuksia.
+  - Tallentaa ja palauttaa automaattisesti:
+    - Valitun markkinaparin, aikajänteen, pörssin ja näyttönimen (`selectedMarket`)
+    - Suosikkiparit (`favoriteKeys`)
+    - Kaavion aktiiviset indikaattorit koodeineen ja näkyvyyksineen (`activeIndicators`)
+    - Viimeisimmät backtest-metriikat ja yhteenvedon (`lastBacktest`)
+    - Viimeisimmän teknisen analyysin ja markkinabias-suosituksen (`lastAnalysis`)
+    - Valitun tekoälymallin ja suoritustilan (`selectedModel`, `selectedMode`)
+    - Viimeisimmät komentorivilokit (`terminalLogs`)
+  - Reaaliaikainen monen istunnon synkronointi WebSocket-viestillä (`user_state_sync`).
 - **[`frontend/src/community_scripts.ts`](../frontend/src/community_scripts.ts)**:
   - 10 esivalidoitua TradingView Community Scriptiä neljässä kategoriassa (Trendi, Oskillaattorit, Volatiliteetti, Hintatoiminta).
 - **[`frontend/src/main.ts`](../frontend/src/main.ts)**:

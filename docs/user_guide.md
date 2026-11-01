@@ -155,14 +155,21 @@ Oikean sivupaneelin **Kvantitatiiviset Metriikat (Backtest)** -osiossa sijaitsee
 
 ## 6. Yhden Käyttäjän Pysyvä Muisti (`UserMemory`)
 
-Sovelluksessa on sisäänrakennettu tilanmuisti, joka tekee työtilasta täysin pysyvän ilman erillistä kirjautumista:
+Sovelluksessa on sisäänrakennettu moni-istuntoinen tilanmuisti, joka säilyttää koko työtilan tilan **eri selainistuntojen välillä** (eri selaimet, incognito-ikkunat, mobiililaitteet, koneen uudelleenkäynnistykset tai sivun F5-päivitykset) ilman erillistä kirjautumista:
 
 - **Mitä tallennetaan automaattisesti?**
-  1. **Valittu markkina**: Viimeisin pörssi (`hyperliquid`/`binance`), pari ja aikajänne.
+  1. **Valittu markkina**: Viimeisin pörssi (`hyperliquid`/`binance`), pari, aikajänne ja näyttönimi.
   2. **Suosikit (⭐)**: Kaikki tähdellä merkatut tokenit.
-  3. **Kaavion aktiiviset indikaattorit**: Kaikki kaaviolle ladatut indikaattorit tallentuvat. **Kun päivität sivun (F5) tai käynnistät selaimen uudestaan, kaikki indikaattorit ladataan automaattisesti takaisin kaaviolle.**
-  4. **Viimeisimmät tulokset**: Viimeksi ajetut backtest-metriikat ja tilannekatsauksen teksti säilyvät ruudulla.
-- **Tallennusmekanismi**: Kaksoistallennus selaimen `localStorageen` sekä palvelimen `backend/user_state.json` -tiedostoon HTTP REST -rajapinnan kautta.
+  3. **Kaavion aktiiviset indikaattorit**: Kaikki kaaviolle ladatut indikaattorit koodeineen ja näkyvyyksineen. **Kun avaat sovelluksen uudessa selaimessa tai välilehdessä, kaikki indikaattorit piirretään automaattisesti suoraan kaaviolle.**
+  4. **Viimeisimmät backtest-tulokset**: Kaikki ajetut strategiametriikat ja yhteenvedot palautuvat metriikkakortteihin.
+  5. **Tekninen analyysi**: Viimeisin tekoälyn tekemä tekninen tilannekatsaus ja markkinan suuntabias (🟢 OSTO / 🔴 MYYNTI / 🟡 NEUTRAALI).
+  6. **Asetukset**: Valittu tekoälymalli (`gemini-3.8-flash-high` jne.) ja suoritustila (`auto` / `instant`).
+  7. **Terminaalilokit**: Viimeisimmät lokimerkinnät säilyvät terminaalissa istunnosta toiseen.
+- **Miten tallennus toimii?**
+  - **Palvelin auktoriteettina**: Taustapalvelimen `backend/user_state.json` toimii pääasiallisena tietovarastona (`/api/user-state`).
+  - **Asynkroninen suojaus**: Uusi selainistunto odottaa (`await userMemory.init()`) palvelimen tilaa ennen kuin alustaa kaavion, jolloin tyhjät oletukset eivät koskaan pyyhi olemassa olevaa työtilaa.
+  - **Reaaliaikainen WebSocket-synkronointi**: Jos työtilaa muokataan yhdessä selainikkunassa tai laitteessa, `user_state_sync` päivittää muutokset välittömästi myös muihin avoimiin selainikkunoihin.
+  - **Paikallinen välimuisti**: Selaimen `localStorage` peilaa tilaa offline- ja nopeaa ensimaalausta varten.
 
 ---
 
