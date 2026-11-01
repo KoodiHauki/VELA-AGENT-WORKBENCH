@@ -210,6 +210,19 @@ WantedBy=multi-user.target
     print(f"\n📡 Frontend HTTP-testi (Hermes 127.0.0.1:5173): Status {out}")
     status, out, err = run_ssh_cmd(ssh, "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/health")
     print(f"📡 Bridge HTTP-testi (Hermes 127.0.0.1:8765/api/health): Status {out}")
+    status, out, err = run_ssh_cmd(ssh, "curl -s http://127.0.0.1:8765/api/user-state")
+    print(f"📡 Bridge User-State API -testi (Hermes /api/user-state): {out[:120]}...")
+
+    print("\n🧪 9b. Suoritetaan yksikkö- ja integraatiotestit Hermeksellä...")
+    status, out, err = run_ssh_cmd(ssh, f"cd {remote_app_dir} && .venv/bin/python -m unittest discover tests")
+    if out:
+        print(out)
+    if err:
+        print(err)
+    if status == 0:
+        print("✅ Kaikki yksikkö- ja integraatiotestit läpäisty Hermeksellä!")
+    else:
+        print(f"⚠️ Testivaroitus/virhe Hermeksellä (exit status {status})")
 
     ssh.close()
 
