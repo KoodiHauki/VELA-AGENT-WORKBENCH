@@ -28,10 +28,40 @@ class TestBackend(unittest.TestCase):
         self.assertEqual(normalize_interval("60"), "1h")
         self.assertEqual(normalize_interval("240"), "4h")
         self.assertEqual(normalize_interval("1d"), "1d")
+        self.assertEqual(normalize_interval("2d"), "2d")
+        self.assertEqual(normalize_interval("2D"), "2d")
+        self.assertEqual(normalize_interval("2880"), "2d")
         self.assertEqual(normalize_interval("1w"), "1w")
+        self.assertEqual(normalize_interval("1W"), "1w")
+        self.assertEqual(normalize_interval("w"), "1w")
         self.assertEqual(normalize_interval("W"), "1w")
         self.assertEqual(normalize_interval("1M"), "1M")
+        self.assertEqual(normalize_interval("1mo"), "1M")
         self.assertEqual(normalize_interval("M"), "1M")
+
+    def test_multi_day_and_higher_timeframes(self):
+        # Test 2d aggregation from Hyperliquid & Binance
+        df_2d_hl = get_candles("BTC", "2d", bars=10, source="hyperliquid")
+        self.assertFalse(df_2d_hl.empty)
+        self.assertIn("close", df_2d_hl.columns)
+        self.assertGreaterEqual(len(df_2d_hl), 5)
+
+        df_2d_bi = get_candles("BTC", "2880", bars=10, source="binance")
+        self.assertFalse(df_2d_bi.empty)
+        self.assertIn("close", df_2d_bi.columns)
+        self.assertGreaterEqual(len(df_2d_bi), 5)
+
+        # Test 1w and 1M
+        df_1w = get_candles("BTC", "1w", bars=5, source="hyperliquid")
+        self.assertFalse(df_1w.empty)
+        df_1m = get_candles("BTC", "1M", bars=5, source="hyperliquid")
+        self.assertFalse(df_1m.empty)
+
+        # Test historical 2d aggregation
+        from historical_downloader import load_combined_historical_df
+        df_hist_2d = load_combined_historical_df("BTCUSDT", "2d")
+        self.assertFalse(df_hist_2d.empty)
+        self.assertIn("close", df_hist_2d.columns)
 
     def test_data_fetcher_and_context(self):
         df = get_candles("BTC", "1h", bars=50)

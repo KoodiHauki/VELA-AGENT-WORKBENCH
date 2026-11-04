@@ -79,7 +79,7 @@ Skripti käynnistää automaattisesti kaksi taustapalvelua:
 3. **⭐ Suosikkipalkki**:
    - Yläpalkin alla näkyvät tallennetut suosikkiparit (tallennus selaimen muistiin ja backend-tilaan).
    - Yhdellä klikkauksella voit vaihtaa suoraan seurattavaa markkinaa ja kaaviota.
-4. **Aikajänne**: Valitse `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, `1w` (Viikko) tai `1M` (Kuukausi).
+4. **Aikajänne**: Valitse `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, `2d` (2 päivää), `1w` (1 viikko) tai `1M` (1 kuukausi).
 5. **Aktiiviset indikaattorit -palkki**:
    - Kaikki kaaviolle lisätyt indikaattorit näkyvät omina merkkeinään.
    - Voit piilottaa/näyttää (`👁️` / `🙈`) tai poistaa (`✕`) yksittäisiä indikaattoreita ilman koko kaavion nollautumista.
@@ -179,7 +179,7 @@ Paina yläpalkin painiketta **💾 Historiadata**:
 
 ### 7.1 Julkisten ZIP/CSV-Arkistojen Lataus
 - Binance Data Collection tarjoaa ilman kirjautumista tai API-rajoituksia kuukausikohtaiset kynttiläarkistot vuodesta 2017 alkaen.
-- Valitse pari (esim. `BTCUSDT`), aikaväli (`1h`, `1d`, `1w`, `1M`), alkuvuosi ja -kuukausi sekä loppuvuosi ja -kuukausi (esim. 2023/01 – 2024/03).
+- Valitse pari (esim. `BTCUSDT`), aikaväli (`1h`, `1d`, `2d`, `1w`, `1M`), alkuvuosi ja -kuukausi sekä loppuvuosi ja -kuukausi (esim. 2023/01 – 2024/03).
 - Paina **Lataa ja pura arkisto**. Palvelin lataa ZIP-paketit taustalla, purkaa CSV-tiedostot ja indeksoi ne välimuistiin.
 
 ### 7.2 📊 Avaa Kaaviolla (Arkistokatselin)

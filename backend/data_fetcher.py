@@ -33,17 +33,56 @@ INTERVAL_MAP = {
     "8h": "8h",
     "12h": "12h",
     "1d": "1d",
+    "2d": "2d",
+    "2D": "2d",
+    "2880": "2d",
     "1w": "1w",
+    "1W": "1w",
+    "w": "1w",
+    "W": "1w",
     "1M": "1M",
+    "1mo": "1M",
+    "mo": "1M",
+    "M": "1M",
     "60": "1h",
     "240": "4h",
     "D": "1d",
-    "W": "1w",
-    "w": "1w",
-    "M": "1M",
-    "1mo": "1M",
-    "mo": "1M",
 }
+
+
+def aggregate_candles_to_2d(candles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Aggregate 1d candles into 2d candles matching standard 2-day buckets."""
+    if not candles:
+        return []
+    bucket_ms = 2 * 86400 * 1000
+    buckets: Dict[int, List[Dict[str, Any]]] = {}
+    for c in candles:
+        t = int(c.get("t", 0))
+        b_key = (t // bucket_ms) * bucket_ms
+        if b_key not in buckets:
+            buckets[b_key] = []
+        buckets[b_key].append(c)
+
+    res = []
+    for b_key in sorted(buckets.keys()):
+        group = buckets[b_key]
+        first = group[0]
+        last = group[-1]
+        high = max(float(x.get("h", 0.0)) for x in group)
+        low = min(float(x.get("l", 0.0)) for x in group)
+        volume = sum(float(x.get("v", 0.0)) for x in group)
+        res.append({
+            "t": b_key,
+            "T": b_key + bucket_ms - 1,
+            "s": first.get("s", ""),
+            "i": "2d",
+            "o": str(first.get("o", 0.0)),
+            "h": str(high),
+            "l": str(low),
+            "c": str(last.get("c", 0.0)),
+            "v": str(volume),
+        })
+    return res
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -176,6 +215,10 @@ def get_available_symbols(source: str = "hyperliquid", force_refresh: bool = Fal
 
 def fetch_candles_hyperliquid(coin: str, interval: str, start_time: int = 0) -> List[Dict[str, Any]]:
     """Fetch candle snapshot from Hyperliquid REST API."""
+    if interval in ("2d", "2D", "2880"):
+        candles_1d = fetch_candles_hyperliquid(coin, "1d", start_time=start_time)
+        return aggregate_candles_to_2d(candles_1d)
+
     payload = {
         "type": "candleSnapshot",
         "req": {
@@ -195,6 +238,10 @@ def fetch_candles_hyperliquid(coin: str, interval: str, start_time: int = 0) -> 
 
 def fetch_candles_binance(coin: str, interval: str, limit: int = 1000) -> List[Dict[str, Any]]:
     """Fetch klines from Binance public REST API."""
+    if interval in ("2d", "2D", "2880"):
+        candles_1d = fetch_candles_binance(coin, "1d", limit=min(limit * 2, 1000))
+        return aggregate_candles_to_2d(candles_1d)
+
     pair = f"{coin}USDT"
     params = {
         "symbol": pair,

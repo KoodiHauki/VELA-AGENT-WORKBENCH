@@ -287,10 +287,12 @@ def load_combined_historical_df(symbol: str, interval: str) -> pd.DataFrame:
     
     # Check primary interval folder and potential aliases (e.g. 1M vs 1mo)
     aliases = [interval]
-    if interval in ("1M", "1mo"):
-        aliases = ["1M", "1mo"]
-    elif interval in ("1w", "1W", "W"):
+    if interval in ("1M", "1mo", "M"):
+        aliases = ["1M", "1mo", "M"]
+    elif interval in ("1w", "1W", "W", "w"):
         aliases = ["1w", "1W", "W"]
+    elif interval in ("2d", "2D", "2880"):
+        aliases = ["2d", "2D"]
 
     csv_files = []
     for alt in aliases:
@@ -300,6 +302,21 @@ def load_combined_historical_df(symbol: str, interval: str) -> pd.DataFrame:
 
     csv_files = sorted(list(set(csv_files)))
     if not csv_files:
+        if interval in ("2d", "2D", "2880"):
+            df_1d = load_combined_historical_df(symbol, "1d")
+            if not df_1d.empty:
+                bucket_ms = 2 * 86400 * 1000
+                df_1d["bucket"] = (df_1d["time_ms"] // bucket_ms) * bucket_ms
+                combined = df_1d.groupby("bucket", as_index=False).agg({
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }).rename(columns={"bucket": "time_ms"}).sort_values("time_ms").reset_index(drop=True)
+                if "timestamp" in df_1d.columns:
+                    combined["timestamp"] = pd.to_datetime(combined["time_ms"], unit="ms", utc=True)
+                return combined
         return pd.DataFrame()
 
     dfs = []

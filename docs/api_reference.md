@@ -16,7 +16,7 @@ Hakee markkinan tilastollisen yhteenvedon ja faktapohjaisen tilannekuvan.
 | Nimi | Tyyppi | Oletus | Kuvaus |
 | :--- | :--- | :--- | :--- |
 | `symbol` | `string` | `"BTC"` | Markkinakolikko (esim. `"BTC"`, `"ETH"`, `"SOL"`). |
-| `timeframe` | `string` | `"1h"` | Aikaväli (`"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"`). |
+| `timeframe` | `string` | `"1h"` | Aikaväli (`"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"`, `"2d"`, `"1w"`, `"1M"`). |
 | `candles` | `integer` | `100` | Analysoitavien historiabaarien määrä. |
 | `source` | `string` | `"hyperliquid"` | Datalähdepörssi: `"hyperliquid"` tai `"binance"`. |
 
@@ -166,7 +166,7 @@ Lataa kuukausikohtaiset kynttiläarkistot suoraan rekisteröitymisvapaasta `data
 | Nimi | Tyyppi | Oletus | Kuvaus |
 | :--- | :--- | :--- | :--- |
 | `symbol` | `string` | `"BTCUSDT"` | Kaupankäyntipari (esim. `"BTCUSDT"`, `"ETHUSDT"`). |
-| `interval` | `string` | `"1h"` | Kynttilöiden aikaväli (`"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"`, `"1w"`, `"1M"`). |
+| `interval` | `string` | `"1h"` | Kynttilöiden aikaväli (`"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"`, `"2d"`, `"1w"`, `"1M"`). |
 | `start_year` | `integer` | `2024` | Alkuvuosi (esim. `2023`). |
 | `start_month` | `integer` | `1` | Alkukuukausi (`1`-`12`). |
 | `end_year` | `integer` | `2024` | Loppuvuosi (esim. `2024`). |
@@ -270,7 +270,7 @@ Palauttaa saatavilla olevat pörssiparit (Hyperliquid 234 kpl, Binance Spot 503 
 Noutaa kynttilähistorian JSON-muodossa live-pörsseistä tai paikallisesta Binance Vision -arkistosta.
 - **Kyselyparametrit:**
   - `symbol`: e.g. `BTC` tai `BTCUSDT`
-  - `timeframe`: e.g. `1h`, `1d`, `1w`, `1M`
+  - `timeframe`: e.g. `1h`, `1d`, `2d`, `1w`, `1M`
   - `bars`: e.g. `100` (oletus `1000`)
   - `source`: `"hyperliquid"`, `"binance"` tai `"archive"`
   - `file`: (valinnainen kun `source=archive`) tietty ladattu CSV-tiedosto, esim. `BTCUSDT-1h-2024-01.csv`
