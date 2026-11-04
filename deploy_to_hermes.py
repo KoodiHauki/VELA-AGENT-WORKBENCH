@@ -330,15 +330,10 @@ def verify_live():
             print(f"   {u} -> {e}")
 
 def main():
-    deploy_hermes()
-    configure_npm()
-    configure_mikrotik_dns()
-    verify_live()
-    print("\n" + "=" * 60)
-    print("🎉 VELA AGENT WORKBENCH ON VALMIINA HERMEKSELLÄ!")
-    print("👉 HTTPS-osoite:   https://chart.lan.ikkala.com")
-    print("👉 Suora lähiverkko: http://192.168.221.189:5173")
-    print("=" * 60)
+    print("⚠️ chart.lan.ikkala.com on poistettu käytöstä käyttäjän pyynnöstä.")
+    print("👉 Aktiivinen ympäristö ja kaavio löytyy osoitteesta https://krypto.lan.ikkala.com/ (kryptoTreiding).")
+    print("Skriptin suoritus keskeytetty.")
+    return
 
 if __name__ == "__main__":
     main()
