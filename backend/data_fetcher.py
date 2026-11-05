@@ -430,7 +430,7 @@ def fetch_deep_history(
 def get_candles(
     symbol: str = "BTC",
     timeframe: str = "1h",
-    bars: int = 5000,
+    bars: int = 20000,
     source: str = "hyperliquid",
     force_refresh: bool = False,
     cache_ttl_seconds: int = 60,
@@ -460,11 +460,11 @@ def get_candles(
     itv_ms = _get_interval_ms(interval)
     now_ms = int(time.time() * 1000)
 
-    # Jos arkisto on tyhjä tai pieni (< 500 kpl), haetaan syvää historiaa
-    if not saved or (len(saved) < 500 and not force_refresh):
+    # Jos arkisto on tyhjä tai pieni (< 1000 kpl), haetaan syvää historiaa
+    if not saved or (len(saved) < 1000 and not force_refresh):
         logger.info("Arkisto tyhjä tai pieni (%s / %s %s: %d kpl) -> Alustetaan syvä historia...", src, coin, interval, len(saved))
         try:
-            fetch_deep_history(coin, interval, source=src, batches=4, batch_size=1000)
+            fetch_deep_history(coin, interval, source=src, batches=8, batch_size=1000)
             saved = load_persistent_candles(src, coin, interval)
         except Exception as e:
             logger.warning("Syvän historian alustus epäonnistui: %s", e)
