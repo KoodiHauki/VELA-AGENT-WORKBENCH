@@ -213,6 +213,79 @@ def get_available_symbols(source: str = "hyperliquid", force_refresh: bool = Fal
 
 
 
+def _get_interval_ms(interval: str) -> int:
+    """Palauttaa aikavälin keston millisekunteina."""
+    itv = normalize_interval(interval)
+    multipliers = {
+        "m": 60 * 1000,
+        "h": 3600 * 1000,
+        "d": 86400 * 1000,
+        "w": 7 * 86400 * 1000,
+        "M": 30 * 86400 * 1000,
+    }
+    for unit, mult in multipliers.items():
+        if itv.endswith(unit):
+            try:
+                num = int(itv[:-1])
+                return num * mult
+            except ValueError:
+                pass
+    return 3600 * 1000
+
+
+def load_persistent_candles(source: str, coin: str, interval: str) -> List[Dict[str, Any]]:
+    """Lataa pysyvästi tallennetut kynttilät levyltä."""
+    cache_path = _get_cache_path(source, coin, interval)
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list) and len(data) > 0:
+                    return data
+        except Exception as e:
+            logger.warning("Virhe kynttiläarkiston luennassa %s: %s", cache_path, e)
+    return []
+
+
+def save_persistent_candles(source: str, coin: str, interval: str, candles: List[Dict[str, Any]]) -> None:
+    """Tallentaa kynttilät pysyvästi levylle atomisesti."""
+    if not candles:
+        return
+    cache_path = _get_cache_path(source, coin, interval)
+    temp_path = f"{cache_path}.tmp_{os.getpid()}"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(candles, f)
+        os.replace(temp_path, cache_path)
+        logger.info("Tallennettu pysyvään arkistoon %d kynttilää: %s", len(candles), os.path.basename(cache_path))
+    except Exception as e:
+        logger.error("Virhe kynttiläarkiston tallennuksessa %s: %s", cache_path, e)
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+def merge_candles(existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Yhdistää ja järjestää kynttilät deduplikoiden aikaleiman (t) mukaan nousevassa järjestyksessä."""
+    if not existing:
+        return sorted(incoming, key=lambda c: int(c.get("t", 0)))
+    if not incoming:
+        return existing
+
+    by_time: Dict[int, Dict[str, Any]] = {}
+    for c in existing:
+        t = int(c.get("t", 0))
+        by_time[t] = c
+
+    for c in incoming:
+        t = int(c.get("t", 0))
+        by_time[t] = c
+
+    return [by_time[t] for t in sorted(by_time.keys())]
+
+
 def fetch_candles_hyperliquid(coin: str, interval: str, start_time: int = 0) -> List[Dict[str, Any]]:
     """Fetch candle snapshot from Hyperliquid REST API."""
     if interval in ("2d", "2D", "2880"):
@@ -236,23 +309,33 @@ def fetch_candles_hyperliquid(coin: str, interval: str, start_time: int = 0) -> 
     return data
 
 
-def fetch_candles_binance(coin: str, interval: str, limit: int = 1000) -> List[Dict[str, Any]]:
-    """Fetch klines from Binance public REST API."""
+def fetch_candles_binance(
+    coin: str,
+    interval: str,
+    limit: int = 1000,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch klines from Binance public REST API with pagination support."""
     if interval in ("2d", "2D", "2880"):
-        candles_1d = fetch_candles_binance(coin, "1d", limit=min(limit * 2, 1000))
+        candles_1d = fetch_candles_binance(coin, "1d", limit=min(limit * 2, 1000), start_time=start_time, end_time=end_time)
         return aggregate_candles_to_2d(candles_1d)
 
-    pair = f"{coin}USDT"
-    params = {
+    pair = f"{coin}USDT" if not coin.endswith("USDT") and not coin.endswith("EUR") else coin
+    params: Dict[str, Any] = {
         "symbol": pair,
         "interval": interval,
         "limit": min(limit, 1000),
     }
+    if start_time is not None:
+        params["startTime"] = int(start_time)
+    if end_time is not None:
+        params["endTime"] = int(end_time)
 
     last_err: Optional[Exception] = None
     for url in BINANCE_API_URLS:
         try:
-            logger.info("Fetching Binance klines for %s %s from %s", pair, interval, url)
+            logger.info("Fetching Binance klines for %s %s (end_time=%s) from %s", pair, interval, end_time, url)
             resp = requests.get(url, params=params, timeout=10)
             if resp.status_code == 200:
                 raw_klines = resp.json()
@@ -279,72 +362,148 @@ def fetch_candles_binance(coin: str, interval: str, limit: int = 1000) -> List[D
     raise RuntimeError(f"All Binance endpoints failed for {pair}")
 
 
+def fetch_deep_history(
+    symbol: str = "BTC",
+    timeframe: str = "1h",
+    source: str = "binance",
+    batches: int = 5,
+    batch_size: int = 1000,
+) -> Dict[str, Any]:
+    """Hakee pörssistä vanhempaa historiadataa useassa erässä taaksepäin ja tallentaa sen pysyvästi levylle."""
+    src = source.lower().strip()
+    norm_itv = normalize_interval(timeframe)
+    coin = normalize_symbol(symbol)
+
+    existing = load_persistent_candles(src, coin, norm_itv)
+    earliest_time = existing[0]["t"] if existing else None
+    current_end = earliest_time - 1 if earliest_time else None
+
+    fetch_interval = "1d" if norm_itv == "2d" else norm_itv
+    collected_older: List[Dict[str, Any]] = []
+
+    logger.info("Käynnistetään syvä historiahaku (%s / %s %s, %d erää, alkaen end_time=%s)...", src, coin, norm_itv, batches, current_end)
+
+    for i in range(batches):
+        try:
+            batch = []
+            if src == "binance":
+                batch = fetch_candles_binance(coin, fetch_interval, limit=batch_size, end_time=current_end)
+            else:
+                batch = fetch_candles_binance(coin, fetch_interval, limit=batch_size, end_time=current_end)
+
+            if not batch:
+                break
+
+            if norm_itv == "2d":
+                batch = aggregate_candles_to_2d(batch)
+
+            collected_older = batch + collected_older
+            earliest_in_batch = batch[0]["t"]
+            current_end = earliest_in_batch - 1
+
+            if len(batch) < 100:
+                break
+
+            time.sleep(0.06)
+        except Exception as e:
+            logger.warning("Virhe syvähaun erässä %d: %s", i + 1, e)
+            break
+
+    merged = merge_candles(existing, collected_older)
+    save_persistent_candles(src, coin, norm_itv, merged)
+
+    earliest_iso = pd.to_datetime(merged[0]["t"], unit="ms", utc=True).isoformat() if merged else ""
+    latest_iso = pd.to_datetime(merged[-1]["t"], unit="ms", utc=True).isoformat() if merged else ""
+
+    return {
+        "status": "ok",
+        "symbol": coin,
+        "interval": norm_itv,
+        "source": src,
+        "newly_fetched_bars": len(collected_older),
+        "total_saved_bars": len(merged),
+        "earliest": earliest_iso,
+        "latest": latest_iso,
+    }
+
+
 def get_candles(
     symbol: str = "BTC",
     timeframe: str = "1h",
-    bars: int = 200,
+    bars: int = 5000,
     source: str = "hyperliquid",
     force_refresh: bool = False,
     cache_ttl_seconds: int = 60,
 ) -> pd.DataFrame:
-    """Get market candles as a Pandas DataFrame from Hyperliquid or Binance."""
+    """Palauttaa kynttilädatan pysyvästä arkistosta täydennettynä tuoreimmilla markkinakynttilöillä."""
     src = source.lower().strip()
     coin = normalize_symbol(symbol)
     interval = normalize_interval(timeframe)
-    cache_path = _get_cache_path(src, coin, interval)
 
-    raw_candles: Optional[List[Dict[str, Any]]] = None
-
-    if not force_refresh and os.path.exists(cache_path):
+    # 1. Tarkistetaan paikallinen CSV-arkistolähde
+    if src == "binance":
         try:
-            mtime = os.path.getmtime(cache_path)
-            if (time.time() - mtime) < cache_ttl_seconds:
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    raw_candles = json.load(f)
-                logger.info("Loaded %d candles for %s %s (%s) from cache", len(raw_candles), coin, interval, src)
-        except Exception as e:
-            logger.warning("Failed to load cache %s: %s", cache_path, e)
+            from historical_downloader import load_combined_historical_df
+            df_hist = load_combined_historical_df(coin, interval)
+            if not df_hist.empty and len(df_hist) >= bars:
+                logger.info("Tarjoillaan %d kynttilää ladatusta Binance Vision -arkistosta", len(df_hist))
+                if bars > 0 and len(df_hist) > bars:
+                    df_hist = df_hist.iloc[-bars:].reset_index(drop=True)
+                if "timestamp" not in df_hist.columns and "time_ms" in df_hist.columns:
+                    df_hist["timestamp"] = pd.to_datetime(df_hist["time_ms"], unit="ms", utc=True)
+                return df_hist
+        except Exception:
+            pass
 
-    if raw_candles is None:
+    # 2. Ladataan pysyvä kynttilähistoria levyltä
+    saved = load_persistent_candles(src, coin, interval)
+    itv_ms = _get_interval_ms(interval)
+    now_ms = int(time.time() * 1000)
+
+    # Jos arkisto on tyhjä tai pieni (< 500 kpl), haetaan syvää historiaa
+    if not saved or (len(saved) < 500 and not force_refresh):
+        logger.info("Arkisto tyhjä tai pieni (%s / %s %s: %d kpl) -> Alustetaan syvä historia...", src, coin, interval, len(saved))
         try:
-            # Check if we have rich downloaded historical archive data from Binance Vision
-            if src == "binance":
-                try:
-                    from historical_downloader import load_combined_historical_df
-                    df_hist = load_combined_historical_df(coin, interval)
-                    if not df_hist.empty and len(df_hist) >= bars:
-                        logger.info("Serving %d candles from downloaded Binance Vision historical archives", len(df_hist))
-                        if bars > 0 and len(df_hist) > bars:
-                            df_hist = df_hist.iloc[-bars:].reset_index(drop=True)
-                        if "timestamp" not in df_hist.columns and "time_ms" in df_hist.columns:
-                            df_hist["timestamp"] = pd.to_datetime(df_hist["time_ms"], unit="ms", utc=True)
-                        return df_hist
-                except Exception as hist_err:
-                    logger.debug("Historical archive check skipped: %s", hist_err)
-
-            if src == "binance":
-                raw_candles = fetch_candles_binance(coin, interval, limit=max(bars, 500))
-            else:
-                raw_candles = fetch_candles_hyperliquid(coin, interval)
-
-            with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump(raw_candles, f)
+            fetch_deep_history(coin, interval, source=src, batches=4, batch_size=1000)
+            saved = load_persistent_candles(src, coin, interval)
         except Exception as e:
-            logger.error("Failed to fetch candles from %s: %s", src, e)
-            if os.path.exists(cache_path):
-                logger.info("Falling back to stale cache for %s %s (%s)", coin, interval, src)
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    raw_candles = json.load(f)
-            else:
-                raise
+            logger.warning("Syvän historian alustus epäonnistui: %s", e)
 
-    if not raw_candles:
-        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
-
-    if bars > 0 and len(raw_candles) > bars:
-        candles_slice = raw_candles[-bars:]
+    # 3. Tarkistetaan tarvitaanko tuoreimman pään päivitystä
+    needs_update = False
+    if not saved:
+        needs_update = True
     else:
-        candles_slice = raw_candles
+        last_t = saved[-1]["t"]
+        time_since_last = now_ms - last_t
+        if time_since_last >= min(itv_ms // 2, 60_000) or force_refresh:
+            needs_update = True
+
+    if needs_update:
+        try:
+            latest_batch = []
+            fetch_itv = "1d" if interval == "2d" else interval
+            if src == "binance":
+                latest_batch = fetch_candles_binance(coin, fetch_itv, limit=200)
+            else:
+                latest_batch = fetch_candles_hyperliquid(coin, fetch_itv)
+
+            if interval == "2d" and latest_batch:
+                latest_batch = aggregate_candles_to_2d(latest_batch)
+
+            if latest_batch:
+                saved = merge_candles(saved, latest_batch)
+                save_persistent_candles(src, coin, interval, saved)
+        except Exception as e:
+            logger.error("Virhe tuoreiden kynttilöiden päivityksessä: %s", e)
+
+    if not saved:
+        return pd.DataFrame(columns=["timestamp", "time_ms", "open", "high", "low", "close", "volume"])
+
+    if bars > 0 and len(saved) > bars:
+        candles_slice = saved[-bars:]
+    else:
+        candles_slice = saved
 
     rows = []
     for c in candles_slice:
@@ -358,8 +517,7 @@ def get_candles(
             "volume": float(c.get("v", 0.0)),
         })
 
-    df = pd.DataFrame(rows)
-    return df
+    return pd.DataFrame(rows)
 
 
 if __name__ == "__main__":
